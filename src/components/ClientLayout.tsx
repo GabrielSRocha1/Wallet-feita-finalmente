@@ -11,13 +11,25 @@ export default function ClientLayout({
 }) {
     const [showSplash, setShowSplash] = useState(true);
 
+    useEffect(() => {
+        // Garantia de segurança: Forçar saída do splash após 3.5s caso o callback falhe
+        const timer = setTimeout(() => {
+            setShowSplash(false);
+        }, 3500);
+        return () => clearTimeout(timer);
+    }, []);
+
     return (
         <WalletProvider>
-            <div className="bg-zinc-950 min-h-screen">
+            <div className="bg-zinc-950 min-h-screen selection:bg-[#EAB308]/30">
                 {showSplash && <SplashScreen onFinish={() => setShowSplash(false)} />}
-                <div className={`${showSplash ? "hidden" : "block"} max-w-screen-md mx-auto bg-black min-h-screen relative shadow-2xl`}>
-                    {children}
-                </div>
+
+                {/* Só renderiza o conteúdo principal quando o splash terminar para evitar saltos de layout */}
+                {!showSplash && (
+                    <div className="max-w-screen-md mx-auto bg-black min-h-screen relative shadow-2xl animate-in fade-in duration-700">
+                        {children}
+                    </div>
+                )}
             </div>
         </WalletProvider>
     );

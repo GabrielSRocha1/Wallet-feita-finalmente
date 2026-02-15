@@ -96,7 +96,7 @@ export default function ConfigurationPage() {
 
     const confirmGoHome = () => {
         localStorage.removeItem("contract_draft");
-        router.push("/");
+        router.push("/home-cliente");
     };
 
     const handleContinue = () => {

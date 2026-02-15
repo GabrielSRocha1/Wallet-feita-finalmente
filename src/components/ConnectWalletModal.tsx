@@ -100,11 +100,6 @@ const ConnectWalletModal: React.FC<ConnectWalletModalProps> = ({ isOpen, onClose
             try {
                 await connectWallet(wallet.id);
                 onClose();
-
-                // Pequeno delay para garantir que o estado foi atualizado
-                setTimeout(() => {
-                    window.location.reload();
-                }, 100);
             } catch (err) {
                 // Erro já tratado no contexto
                 console.error('Erro ao conectar:', err);

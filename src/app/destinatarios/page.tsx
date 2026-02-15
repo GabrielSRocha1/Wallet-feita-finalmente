@@ -75,7 +75,7 @@ export default function RecipientsPage() {
     const confirmGoHome = () => {
         localStorage.removeItem("contract_draft");
         localStorage.removeItem("recipients_draft");
-        router.push("/");
+        router.push("/home-cliente");
     };
 
     const openEditModal = (recipient: RecipientData) => {

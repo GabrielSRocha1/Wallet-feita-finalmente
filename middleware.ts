@@ -17,13 +17,9 @@ export function middleware(request: NextRequest) {
     const isAdmin = walletAddress?.toLowerCase() === normalizedAdmin ||
         "da51jlcnufn3l3rdneykn7kxr7c3otnlavbsjmttze8" === walletAddress?.toLowerCase();
 
-    // 1. Root path '/' always redirects to the appropriate dashboard
+    // 1. Root path '/' always redirects to the dashboard
     if (path === '/') {
-        if (isAdmin) {
-            return NextResponse.redirect(new URL('/configuracao', request.url));
-        } else {
-            return NextResponse.redirect(new URL('/home-cliente', request.url));
-        }
+        return NextResponse.redirect(new URL('/home-cliente', request.url));
     }
 
     // 2. Protect Admin routes

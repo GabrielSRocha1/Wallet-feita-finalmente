@@ -2,7 +2,7 @@ import { createSolanaClient, devnet, mainnet } from 'gill';
 
 // Configuração da rede
 // Você pode definir isso no arquivo .env.local como NEXT_PUBLIC_SOLANA_NETWORK=mainnet
-const NETWORK = process.env.NEXT_PUBLIC_SOLANA_NETWORK || 'mainnet';
+const NETWORK = process.env.NEXT_PUBLIC_SOLANA_NETWORK || 'devnet';
 
 const rpcUrl = NETWORK === 'mainnet'
     ? 'https://api.mainnet-beta.solana.com'

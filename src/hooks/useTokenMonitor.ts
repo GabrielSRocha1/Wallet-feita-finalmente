@@ -19,11 +19,17 @@ interface UseTokenMonitorReturn {
     refresh: () => Promise<void>;
 }
 
+import { NETWORK } from '@/utils/solana-config';
+
 const TOKEN_PROGRAM_ID = new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
 const HELIUS_API_KEY = process.env.NEXT_PUBLIC_HELIUS_API_KEY;
+
+// Dynamic endpoint based on global network
 const RPC_ENDPOINT = HELIUS_API_KEY
-    ? `https://devnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}`
-    : 'https://api.devnet.solana.com';
+    ? `https://${NETWORK === 'mainnet' ? 'mainnet' : 'devnet'}.helius-rpc.com/?api-key=${HELIUS_API_KEY}`
+    : NETWORK === 'mainnet'
+        ? 'https://api.mainnet-beta.solana.com'
+        : 'https://api.devnet.solana.com';
 
 const truncateMint = (mint?: string) => {
     if (!mint || mint.length < 8) return mint || 'Unknown';

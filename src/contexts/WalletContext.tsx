@@ -27,19 +27,18 @@ export const isWalletInstalled = (walletName: string): boolean => {
     if (typeof window === 'undefined') return false;
     const w = window as any;
 
-    // Verum sempre "instalada" pois é simulada/interna para testes
     if (walletName === 'verum') return true;
 
-    // Verificação direta via window (mais robusta para UI)
-    if (walletName === 'phantom') return !!(w.phantom?.solana || w.solana?.isPhantom);
-    if (walletName === 'solflare') return !!(w.solflare || w.solana?.isSolflare);
-    if (walletName === 'okx') return !!w.okxwallet?.solana;
+    // Detecção direta via objetos injetados (mais confiável em desktop)
+    const isPhantom = !!(w.phantom?.solana?.isPhantom || w.solana?.isPhantom);
+    const isSolflare = !!(w.solflare?.isSolflare || w.solana?.isSolflare);
+    const isOKX = !!(w.okxwallet?.solana);
 
-    // Fallback: Obtém wallets detectadas via adapters
-    const wallets = detectWallets() as any;
-    const wallet = wallets[walletName];
+    if (walletName === 'phantom') return isPhantom;
+    if (walletName === 'solflare') return isSolflare;
+    if (walletName === 'okx') return isOKX;
 
-    return !!wallet && (wallet.readyState === "Installed" || wallet.readyState === "Loadable");
+    return false;
 };
 
 export function WalletProvider({ children }: { children: ReactNode }) {

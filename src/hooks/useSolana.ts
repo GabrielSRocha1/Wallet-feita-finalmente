@@ -25,9 +25,6 @@ export const useSolana = () => {
     });
 
     const connect = useCallback(async (walletName: string) => {
-        // Se já estiver conectando ou já está conectado com a mesma carteira, ignora
-        if (state.loading) return;
-
         setState(prev => ({ ...prev, loading: true, error: null }));
 
         try {
@@ -37,7 +34,10 @@ export const useSolana = () => {
                 throw new Error("Falha ao obter chave pública");
             }
 
+            // Simulação de busca de dados de vesting (substitua pela chamada real)
+            // const vestingInfo = await getUserVestingInfo(result.publicKey);
             const vestingInfo = { totalLocked: 0, totalUnlocked: 0, tokens: [] };
+
             const isAdmin = checkIsAdmin(result.publicKey);
 
             // Salva sessão
@@ -72,25 +72,34 @@ export const useSolana = () => {
             }));
             throw error;
         }
-    }, [state.loading, state.connected]);
+    }, []);
 
     const disconnect = useCallback(async () => {
         try {
+            // 1. Tentar desconectar pelo adapter salvo no estado
             if (state.wallet) {
                 await disconnectWalletAdapter(state.wallet);
             }
 
+            // 2. Fallback: Tentar desconectar diretamente via window.solana (Phantom) para garantir
+            // Isso ajuda a forçar o estado 'disconnected' na extensão
             if (typeof window !== 'undefined') {
                 const w = window as any;
-                if (w.solana?.disconnect) await w.solana.disconnect();
-                if (w.phantom?.solana?.disconnect) await w.phantom.solana.disconnect();
-                if (w.solflare?.disconnect) await w.solflare.disconnect();
+                if (w.solana && w.solana.disconnect) {
+                    await w.solana.disconnect();
+                }
+                if (w.phantom?.solana?.disconnect) {
+                    await w.phantom.solana.disconnect();
+                }
+                if (w.solflare?.disconnect) {
+                    await w.solflare.disconnect();
+                }
             }
         } catch (e) {
             console.error("Erro ao desconectar adapter:", e);
         }
 
-        // Limpar sessão local e cookies
+        // 3. Limpar sessão local
         localStorage.removeItem('verum_wallet_session');
         document.cookie = "wallet_address=; Max-Age=0; path=/";
 
@@ -107,16 +116,24 @@ export const useSolana = () => {
 
     // Auto-connect ao montar o componente
     useEffect(() => {
-        let isMounted = true;
-
         const init = async () => {
             const saved = localStorage.getItem('verum_wallet_session');
-            if (saved && !state.connected && !state.loading) {
+            if (saved) {
                 try {
-                    const { walletName } = JSON.parse(saved);
-                    if (isMounted) {
-                        await connect(walletName);
-                    }
+                    const { walletName, publicKey } = JSON.parse(saved);
+
+                    // Tenta reconectar silenciosamente se possível
+                    // Nota: A maioria das wallets requer interação do usuário para conectar na primeira vez,
+                    // mas se já estiver autorizada, pode conectar direto.
+                    // Aqui estamos apenas restaurando o estado se a wallet injetada já estiver conectada
+                    // ou forçando uma conexão (pode abrir popup)
+
+                    // Para evitar popup indesejado no load, verificamos se já está conectado na extensão
+                    // Isso depende da implementação específica de cada adapter.
+                    // Como simplificação, chamamos connect() que deve lidar com isso.
+
+                    await connect(walletName);
+
                 } catch (e) {
                     console.warn("Falha ao restaurar sessão:", e);
                     localStorage.removeItem('verum_wallet_session');
@@ -125,8 +142,7 @@ export const useSolana = () => {
         };
 
         init();
-        return () => { isMounted = false; };
-    }, [connect, state.connected, state.loading]);
+    }, [connect]);
 
     return {
         ...state,
