@@ -7,7 +7,6 @@ import { useRouter } from "next/navigation";
 import { useWallet } from "@/contexts/WalletContext";
 import { useTokenMonitor } from "@/hooks/useTokenMonitor";
 import ConnectWalletModal from "@/components/ConnectWalletModal";
-import { NETWORK } from "@/utils/solana-config";
 
 export default function HomeClientePage() {
     const router = useRouter();
@@ -108,12 +107,6 @@ export default function HomeClientePage() {
     const handleDisconnect = async () => {
         await disconnectWallet();
         setIsWalletDropdownOpen(false);
-        window.location.reload();
-    };
-
-    const toggleNetwork = () => {
-        const next = NETWORK === 'mainnet' ? 'devnet' : 'mainnet';
-        localStorage.setItem('verum_solana_network', next);
         window.location.reload();
     };
 
@@ -293,17 +286,8 @@ export default function HomeClientePage() {
             {/* Header - Standardized */}
             <header className="fixed top-0 left-1/2 -translate-x-1/2 w-full max-w-screen-md z-[100] bg-black/80 backdrop-blur-md border-b border-white/5 safe-header">
                 <div className="px-4 py-4 flex items-center justify-between">
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-2">
                         <span className="text-[#EAB308] font-bold text-lg tracking-wide gold-text-gradient">Verum Vesting</span>
-                        <button
-                            onClick={toggleNetwork}
-                            className={`text-[9px] font-black px-2 py-0.5 rounded border transition-colors ${NETWORK === 'mainnet'
-                                    ? 'bg-green-500/10 text-green-500 border-green-500/30'
-                                    : 'bg-yellow-500/10 text-yellow-500 border-yellow-500/30'
-                                }`}
-                        >
-                            {NETWORK.toUpperCase()}
-                        </button>
                     </div>
 
                     {!connected ? (
@@ -335,9 +319,11 @@ export default function HomeClientePage() {
                                         Copiar Endereço
                                     </button>
                                     <button
-                                        onClick={() => {
+                                        onClick={async () => {
                                             if (confirm("Deseja realmente apagar todos os contratos e dados de teste?")) {
+                                                if (connected) await disconnectWallet();
                                                 localStorage.clear();
+                                                document.cookie = "wallet_address=; Max-Age=0; path=/";
                                                 window.location.href = "/";
                                             }
                                         }}
@@ -385,10 +371,7 @@ export default function HomeClientePage() {
                 {/* Client Balance Section (Top) - Recalculated Total Balance (Wallet + Vesting) */}
                 {connected && (
                     <div className="pt-2 text-left animate-in fade-in slide-in-from-top-4 duration-500">
-                        <div className="flex items-center gap-2 mb-1">
-                            <h2 className="text-zinc-500 text-[10px] font-bold uppercase tracking-widest">Saldo Total da Carteira</h2>
-                            <span className="text-[8px] px-1 bg-zinc-800 text-zinc-400 rounded border border-white/5 uppercase">{NETWORK}</span>
-                        </div>
+                        <h2 className="text-zinc-500 text-[10px] font-bold uppercase tracking-widest mb-1">Saldo Total da Carteira</h2>
                         <div className="flex items-baseline gap-2">
                             <p className="text-white text-4xl font-bold tracking-tight">
                                 ${unifiedTokens.length > 0 ?
@@ -396,16 +379,7 @@ export default function HomeClientePage() {
                                     : '0.00'
                                 }
                             </p>
-                            {loadingTokens ? (
-                                <span className="text-[10px] text-[#EAB308] animate-pulse font-bold uppercase ml-2">Sincronizando...</span>
-                            ) : unifiedTokens.length === 0 && (
-                                <button
-                                    onClick={toggleNetwork}
-                                    className="text-[9px] text-[#EAB308] hover:underline font-bold uppercase ml-2"
-                                >
-                                    Nada aqui? Tentar {NETWORK === 'mainnet' ? 'Devnet' : 'Mainnet'}
-                                </button>
-                            )}
+                            {loadingTokens && <span className="text-[10px] text-[#EAB308] animate-pulse font-bold uppercase ml-2">Sincronizando...</span>}
                         </div>
                     </div>
                 )}

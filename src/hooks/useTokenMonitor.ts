@@ -1,6 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { Connection, PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
-import { NETWORK } from '@/utils/solana-config';
 
 interface TokenData {
     mint: string;
@@ -22,20 +21,9 @@ interface UseTokenMonitorReturn {
 
 const TOKEN_PROGRAM_ID = new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
 const HELIUS_API_KEY = process.env.NEXT_PUBLIC_HELIUS_API_KEY;
-
-// Usa o endpoint configurado globalmente ou Helius se disponível
-const GET_RPC_URL = () => {
-    if (NETWORK === 'mainnet') {
-        return HELIUS_API_KEY
-            ? `https://mainnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}`
-            : 'https://api.mainnet-beta.solana.com';
-    }
-    return HELIUS_API_KEY
-        ? `https://devnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}`
-        : 'https://api.devnet.solana.com';
-};
-
-const RPC_ENDPOINT = GET_RPC_URL();
+const RPC_ENDPOINT = HELIUS_API_KEY
+    ? `https://devnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}`
+    : 'https://api.devnet.solana.com';
 
 const truncateMint = (mint?: string) => {
     if (!mint || mint.length < 8) return mint || 'Unknown';
@@ -142,7 +130,7 @@ export const useTokenMonitor = (walletAddress: string | null): UseTokenMonitorRe
             });
 
             // Add SPL
-            tokenAccounts.value.forEach((account: any) => {
+            tokenAccounts.value.forEach((account) => {
                 const info = account.account.data.parsed.info;
                 if (info.tokenAmount.uiAmount > 0) {
                     tokenList.push({
