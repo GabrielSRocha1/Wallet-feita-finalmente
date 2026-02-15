@@ -9,7 +9,7 @@ interface ConnectWalletModalProps {
 }
 
 const ConnectWalletModal: React.FC<ConnectWalletModalProps> = ({ isOpen, onClose }) => {
-    const { connectWallet, connecting, error, clearError } = useWallet();
+    const { connectWallet, loading: connecting, error, clearError } = useWallet();
     const [selectedWallet, setSelectedWallet] = React.useState<{ name: string; url: string } | null>(null);
 
     // Wallet options configuration

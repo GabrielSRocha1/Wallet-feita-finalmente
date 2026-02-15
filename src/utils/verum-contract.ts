@@ -1,11 +1,10 @@
 import {
     createTransaction,
     signTransaction,
-    getSignatureFromTransaction,
-    sendAndConfirmTransaction
+    getSignatureFromTransaction
 } from 'gill';
 
-import { rpc, VERUM_PROGRAM_ID } from './solana-config';
+import { rpc, VERUM_PROGRAM_ID, sendAndConfirmTransaction } from './solana-config';
 
 // Busca informações de vesting do usuário
 export const getUserVestingInfo = async (publicKey: string) => {
@@ -65,7 +64,7 @@ export const sendTransaction = async (wallet: any, transaction: any) => {
         const signed = await signTransaction([wallet], transaction);
         const signature = getSignatureFromTransaction(signed);
 
-        await sendAndConfirmTransaction(rpc, signed, {
+        await sendAndConfirmTransaction(signed, {
             commitment: 'confirmed'
         });
 
