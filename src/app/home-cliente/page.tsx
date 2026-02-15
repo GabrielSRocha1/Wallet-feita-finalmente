@@ -477,10 +477,10 @@ export default function HomeClientePage() {
                                         localStorage.setItem("selected_contract", JSON.stringify(contract));
                                         router.push("/contrato-detalhes");
                                     }}
-                                    className="bg-zinc-900/40 border border-white/5 rounded-[24px] p-5 flex flex-wrap items-center gap-y-4 text-[10px] sm:text-xs overflow-hidden cursor-pointer hover:bg-zinc-800/60 hover:border-[#EAB308]/30 transition-all active:scale-[0.99] group shadow-sm text-left"
+                                    className="bg-zinc-900/40 border border-white/5 rounded-[24px] p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center gap-4 text-[10px] sm:text-xs overflow-hidden cursor-pointer hover:bg-zinc-800/60 hover:border-[#EAB308]/30 transition-all active:scale-[0.99] group shadow-sm text-left"
                                 >
-                                    <div className="flex items-center gap-3 w-full sm:w-auto min-w-[120px]">
-                                        <div className="relative w-10 h-10 flex items-center justify-center rounded-full border-2 border-[#EAB308]/20 group-hover:border-[#EAB308]/40 transition-colors">
+                                    <div className="flex items-center gap-3 min-w-[120px]">
+                                        <div className="relative w-10 h-10 shrink-0 flex items-center justify-center rounded-full border-2 border-[#EAB308]/20 group-hover:border-[#EAB308]/40 transition-colors">
                                             {(() => {
                                                 const total = contract.totalAmount || 1;
                                                 const [datePart, timePart] = (contract.vestingStartDate || "01/01/2026, 00:00").split(', ');
@@ -570,17 +570,17 @@ export default function HomeClientePage() {
                                             );
                                         })()}
                                     </div>
-                                    <div className="flex flex-col items-end sm:items-start gap-1.5 ml-auto sm:ml-0">
-                                        <span className="text-[9px] text-zinc-500 font-bold uppercase tracking-tighter self-start">Status</span>
-                                        <div className="flex items-center gap-3">
-                                            <span className={`px-2.5 py-1 rounded-lg text-[9px] font-black uppercase leading-none tracking-wider
+                                    <div className="flex flex-row sm:flex-col items-center sm:items-start justify-between sm:justify-start gap-1.5 w-full sm:w-auto mt-2 sm:mt-0 pt-3 sm:pt-0 border-t sm:border-t-0 border-white/5">
+                                        <div className="flex flex-col sm:gap-1.5">
+                                            <span className="text-[9px] text-zinc-500 font-bold uppercase tracking-tighter">Status</span>
+                                            <span className={`px-2.5 py-1 rounded-lg text-[9px] font-black uppercase leading-none tracking-wider w-fit
                                                 ${contract.status?.toLowerCase().includes('cancelado')
                                                     ? 'bg-[#EF4444]/20 text-[#EF4444] border border-[#EF4444]/30'
                                                     : 'bg-[#EAB308]/20 text-[#EAB308] border border-[#EAB308]/30'}`}>
                                                 {contract.status?.replace('-', ' ') || "Em Andamento"}
                                             </span>
-                                            <span className="text-[#22C55E] text-[10px] font-bold hover:underline cursor-pointer uppercase tracking-tight">Reivindicação</span>
                                         </div>
+                                        <span className="text-[#22C55E] text-[10px] font-bold hover:underline cursor-pointer uppercase tracking-tight">Ver Detalhes</span>
                                     </div>
                                 </div>
                             ))
@@ -625,7 +625,7 @@ export default function HomeClientePage() {
 
             {/* Bottom Nav - Only visible when connected */}
             {connected && (
-                <nav className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-screen-md bg-black/95 backdrop-blur-md border-t border-white/10 px-6 py-4 flex justify-between items-center z-[200] safe-footer shadow-[0_-10px_40px_rgba(0,0,0,0.8)]">
+                <nav className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-screen-md bg-black/95 backdrop-blur-md border-t border-white/10 px-2 sm:px-6 py-4 flex justify-between items-center z-[200] safe-footer shadow-[0_-10px_40px_rgba(0,0,0,0.8)]">
                     {/* EM ANDAMENTO - Visível para todos */}
                     <button
                         onClick={() => {
@@ -634,13 +634,13 @@ export default function HomeClientePage() {
                         }}
                         data-user-access="true"
                         data-tab-id="em-andamento"
-                        className={`flex flex-col items-center gap-1.5 group ${isAdminUser ? 'w-1/5' : 'w-1/4'} cursor-pointer transition-all ${activeFilter === 'em-andamento' && !searchQuery ? 'text-[#EAB308]' : 'text-zinc-500'}`}
+                        className={`flex flex-col items-center gap-1 group flex-1 cursor-pointer transition-all ${activeFilter === 'em-andamento' && !searchQuery ? 'text-[#EAB308]' : 'text-zinc-500'}`}
                     >
                         <div className="relative">
-                            <span className="material-icons-round text-2xl">gesture</span>
+                            <span className="material-icons-round text-xl sm:text-2xl">gesture</span>
                             {activeFilter === 'em-andamento' && !searchQuery && <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 bg-[#EAB308] rounded-full animate-pulse"></div>}
                         </div>
-                        <span className="text-[9px] font-black uppercase tracking-widest text-center">Em Andamento</span>
+                        <span className="text-[8px] sm:text-[9px] font-black uppercase tracking-widest text-center">Andamento</span>
                     </button>
 
                     {/* AGENDADO - Visível para todos */}
@@ -649,13 +649,13 @@ export default function HomeClientePage() {
                             setActiveFilter("agendado");
                             setSearchQuery("");
                         }}
-                        className={`flex flex-col items-center gap-1.5 group ${isAdminUser ? 'w-1/5' : 'w-1/4'} cursor-pointer transition-all ${activeFilter === 'agendado' && !searchQuery ? 'text-[#EAB308]' : 'text-zinc-500'}`}
+                        className={`flex flex-col items-center gap-1 group flex-1 cursor-pointer transition-all ${activeFilter === 'agendado' && !searchQuery ? 'text-[#EAB308]' : 'text-zinc-500'}`}
                     >
                         <div className="relative">
-                            <span className="material-icons-round text-2xl">edit_note</span>
+                            <span className="material-icons-round text-xl sm:text-2xl">edit_note</span>
                             {activeFilter === 'agendado' && !searchQuery && <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 bg-[#EAB308] rounded-full animate-pulse"></div>}
                         </div>
-                        <span className="text-[9px] font-black uppercase tracking-widest text-center">Agendado</span>
+                        <span className="text-[8px] sm:text-[9px] font-black uppercase tracking-widest text-center">Agendado</span>
                     </button>
 
                     {/* COMPLETO - Visível para todos */}
@@ -666,13 +666,13 @@ export default function HomeClientePage() {
                         }}
                         data-user-access="true"
                         data-tab-id="completo"
-                        className={`flex flex-col items-center gap-1.5 group ${isAdminUser ? 'w-1/5' : 'w-1/4'} cursor-pointer transition-all ${activeFilter === 'completo' && !searchQuery ? 'text-[#EAB308]' : 'text-zinc-500'}`}
+                        className={`flex flex-col items-center gap-1 group flex-1 cursor-pointer transition-all ${activeFilter === 'completo' && !searchQuery ? 'text-[#EAB308]' : 'text-zinc-500'}`}
                     >
                         <div className="relative">
-                            <span className="material-icons-round text-2xl">fact_check</span>
+                            <span className="material-icons-round text-xl sm:text-2xl">fact_check</span>
                             {activeFilter === 'completo' && !searchQuery && <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 bg-[#EAB308] rounded-full animate-pulse"></div>}
                         </div>
-                        <span className="text-[9px] font-black uppercase tracking-widest text-center">Completo</span>
+                        <span className="text-[8px] sm:text-[9px] font-black uppercase tracking-widest text-center">Completo</span>
                     </button>
 
                     {/* ALTERADO - Visível para todos */}
@@ -681,13 +681,13 @@ export default function HomeClientePage() {
                             setActiveFilter("alterado");
                             setSearchQuery("");
                         }}
-                        className={`flex flex-col items-center gap-1.5 group ${isAdminUser ? 'w-1/5' : 'w-1/4'} cursor-pointer transition-all ${activeFilter === 'alterado' && !searchQuery ? 'text-[#EAB308]' : 'text-zinc-500'}`}
+                        className={`flex flex-col items-center gap-1 group flex-1 cursor-pointer transition-all ${activeFilter === 'alterado' && !searchQuery ? 'text-[#EAB308]' : 'text-zinc-500'}`}
                     >
                         <div className="relative">
-                            <span className="material-icons-round text-2xl">published_with_changes</span>
+                            <span className="material-icons-round text-xl sm:text-2xl">published_with_changes</span>
                             {activeFilter === 'alterado' && !searchQuery && <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 bg-[#EAB308] rounded-full animate-pulse"></div>}
                         </div>
-                        <span className="text-[9px] font-black uppercase tracking-widest text-center">Alterado</span>
+                        <span className="text-[8px] sm:text-[9px] font-black uppercase tracking-widest text-center">Alterado</span>
                     </button>
 
                     {/* CANCELADO - Apenas Admin */}
@@ -697,13 +697,13 @@ export default function HomeClientePage() {
                                 setActiveFilter("cancelado");
                                 setSearchQuery("");
                             }}
-                            className={`flex flex-col items-center gap-1.5 group w-1/5 cursor-pointer transition-all ${activeFilter === 'cancelado' && !searchQuery ? 'text-red-500' : 'text-zinc-500'}`}
+                            className={`flex flex-col items-center gap-1 group flex-1 cursor-pointer transition-all ${activeFilter === 'cancelado' && !searchQuery ? 'text-red-500' : 'text-zinc-500'}`}
                         >
                             <div className="relative">
-                                <span className="material-icons-round text-2xl">cancel</span>
+                                <span className="material-icons-round text-xl sm:text-2xl">cancel</span>
                                 {activeFilter === 'cancelado' && !searchQuery && <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 bg-red-500 rounded-full animate-pulse"></div>}
                             </div>
-                            <span className="text-[9px] font-black uppercase tracking-widest text-center">Cancelado</span>
+                            <span className="text-[8px] sm:text-[9px] font-black uppercase tracking-widest text-center">Cancelado</span>
                         </button>
                     )}
                 </nav>

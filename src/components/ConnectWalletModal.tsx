@@ -10,7 +10,12 @@ interface ConnectWalletModalProps {
 
 const ConnectWalletModal: React.FC<ConnectWalletModalProps> = ({ isOpen, onClose }) => {
     const { connectWallet, loading: connecting, error, clearError } = useWallet();
-    const [selectedWallet, setSelectedWallet] = React.useState<{ name: string; url: string } | null>(null);
+    const [selectedWallet, setSelectedWallet] = React.useState<{ name: string; url: string; id: string } | null>(null);
+    const [isMobile, setIsMobile] = React.useState(false);
+
+    React.useEffect(() => {
+        setIsMobile(/iPhone|iPad|iPod|Android/i.test(navigator.userAgent));
+    }, []);
 
     // Wallet options configuration
     const WALLET_OPTIONS = [
@@ -104,8 +109,28 @@ const ConnectWalletModal: React.FC<ConnectWalletModalProps> = ({ isOpen, onClose
                 // Erro já tratado no contexto
                 console.error('Erro ao conectar:', err);
             }
+        } else if (isMobile) {
+            // No mobile, se não estiver instalada (não detectada no browser atual),
+            // tentamos abrir via Deep Link para o browser interno da wallet
+            const currentUrl = encodeURIComponent(window.location.href);
+            const ref = encodeURIComponent(window.location.origin);
+
+            let deepLink = '';
+            if (wallet.id === 'phantom') {
+                deepLink = `https://phantom.app/ul/browse/${currentUrl}?ref=${ref}`;
+            } else if (wallet.id === 'solflare') {
+                deepLink = `https://solflare.com/ul/v1/browse/${currentUrl}?ref=${ref}`;
+            } else if (wallet.id === 'okx') {
+                deepLink = `okx://wallet/dapp/details?dappUrl=${currentUrl}`;
+            }
+
+            if (deepLink) {
+                window.location.href = deepLink;
+            } else {
+                setSelectedWallet({ name: wallet.name, url: wallet.url, id: wallet.id });
+            }
         } else {
-            setSelectedWallet({ name: wallet.name, url: wallet.url });
+            setSelectedWallet({ name: wallet.name, url: wallet.url, id: wallet.id });
         }
     };
 
@@ -115,18 +140,18 @@ const ConnectWalletModal: React.FC<ConnectWalletModalProps> = ({ isOpen, onClose
                 className="w-full max-w-[360px] bg-[#121212] rounded-[20px] shadow-[0_0_30px_rgba(0,0,0,0.5)] overflow-hidden border border-white/5 animate-in zoom-in-95 duration-300"
                 onClick={(e) => e.stopPropagation()}
             >
-                <div className="flex items-center justify-between p-6 pb-4">
-                    <h2 className="text-xl font-bold text-white">Conectar Wallet</h2>
+                <div className="flex items-center justify-between p-5 sm:p-6 pb-4">
+                    <h2 className="text-lg sm:text-xl font-bold text-white">Conectar Wallet</h2>
                     <button
                         onClick={onClose}
-                        className="text-gray-500 hover:text-white transition-colors"
+                        className="text-gray-500 hover:text-white transition-colors p-1"
                         disabled={connecting}
                     >
-                        <span className="material-icons-round">cancel</span>
+                        <span className="material-icons-round text-2xl">close</span>
                     </button>
                 </div>
 
-                <div className="px-6 pb-6 space-y-6">
+                <div className="px-5 sm:px-6 pb-6 space-y-4 sm:space-y-6">
                     {/* Error Alert */}
                     {error && (
                         <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4 relative animate-in slide-in-from-top-2 duration-200">
@@ -154,15 +179,18 @@ const ConnectWalletModal: React.FC<ConnectWalletModalProps> = ({ isOpen, onClose
                                 <span className="material-icons-round text-white/90 mt-0.5 text-xl">info</span>
                                 <div className="flex-1 pr-6">
                                     <p className="text-sm font-semibold text-white leading-tight">
-                                        A carteira "{selectedWallet.name}" não está instalada. Instale a carteira para continuar.
+                                        {isMobile
+                                            ? `Abra o app da ${selectedWallet.name} para conectar sua carteira.`
+                                            : `A carteira "${selectedWallet.name}" não está instalada. Instale a extensão para continuar.`
+                                        }
                                     </p>
                                     <a
                                         href={selectedWallet.url}
                                         target="_blank"
                                         rel="noopener noreferrer"
-                                        className="mt-4 inline-block text-[#D4AF37] font-bold text-sm tracking-wide uppercase hover:opacity-80 transition-opacity"
+                                        className="mt-3 inline-block text-[#D4AF37] font-bold text-sm tracking-wide uppercase hover:underline"
                                     >
-                                        Instalar
+                                        {isMobile ? 'Ir para App Store' : 'Instalar Extensão'}
                                     </a>
                                 </div>
                                 <button
@@ -179,21 +207,25 @@ const ConnectWalletModal: React.FC<ConnectWalletModalProps> = ({ isOpen, onClose
                     )}
 
                     {/* Wallet Buttons */}
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         {wallets.map((wallet) => (
                             <button
                                 key={wallet.id}
                                 onClick={() => handleWalletClick(wallet)}
                                 disabled={connecting}
-                                className={`flex items-center gap-3 bg-[#2A2A2A] p-4 rounded-xl hover:bg-white/10 transition-colors border ${selectedWallet?.name === wallet.name ? 'border-[#D4AF37]/50 bg-white/5' : 'border-transparent'
-                                    } ${connecting ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'} ${!wallet.isInstalled ? 'opacity-60' : ''
+                                className={`flex items-center gap-3 bg-[#2A2A2A] p-3 sm:p-4 rounded-xl hover:bg-white/10 transition-all border ${selectedWallet?.id === wallet.id ? 'border-[#D4AF37]/50 bg-white/5' : 'border-white/5'
+                                    } ${connecting ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer active:scale-95'} ${!wallet.isInstalled && !isMobile ? 'opacity-60' : ''
                                     }`}
                             >
-                                {wallet.icon}
-                                <div className="flex flex-col items-start">
-                                    <span className="font-bold text-white">{wallet.name}</span>
+                                <div className="shrink-0 scale-90 sm:scale-100">
+                                    {wallet.icon}
+                                </div>
+                                <div className="flex flex-col items-start overflow-hidden">
+                                    <span className="font-bold text-white text-sm sm:text-base truncate w-full">{wallet.name}</span>
                                     {!wallet.isInstalled && (
-                                        <span className="text-[9px] text-zinc-500 uppercase tracking-wider">Não instalada</span>
+                                        <span className="text-[10px] text-zinc-500 uppercase tracking-wider">
+                                            {isMobile ? 'Abrir no App' : 'Não instalada'}
+                                        </span>
                                     )}
                                 </div>
                             </button>
