@@ -1,8 +1,16 @@
 import { createSolanaClient, devnet, mainnet } from 'gill';
 
 // Configuração da rede
-// Você pode definir isso no arquivo .env.local como NEXT_PUBLIC_SOLANA_NETWORK=mainnet
-const NETWORK = process.env.NEXT_PUBLIC_SOLANA_NETWORK || 'devnet';
+// Prioridade: LocalStorage > Env > Default (Devnet)
+const getInitialNetwork = () => {
+    if (typeof window !== 'undefined') {
+        const saved = localStorage.getItem('verum_solana_network');
+        if (saved === 'mainnet' || saved === 'devnet') return saved;
+    }
+    return process.env.NEXT_PUBLIC_SOLANA_NETWORK || 'devnet';
+};
+
+export const NETWORK = getInitialNetwork();
 
 const rpcUrl = NETWORK === 'mainnet'
     ? 'https://api.mainnet-beta.solana.com'
@@ -17,4 +25,4 @@ export const sendAndConfirmTransaction = client.sendAndConfirmTransaction;
 export const VERUM_PROGRAM_ID = 'SeuProgramIdAqui111111111111111111111111111';
 
 // Exporta configurações
-export { devnet, mainnet, NETWORK };
+export { devnet, mainnet };
