@@ -1,0 +1,195 @@
+"use client";
+
+import React, { useState, useEffect } from "react";
+import Link from "next/link";
+import Image from "next/image";
+import { useRouter } from "next/navigation";
+
+export default function ConfirmationPage() {
+    const router = useRouter();
+    const [showToast, setShowToast] = useState(false);
+
+    useEffect(() => {
+        // Save the contract to the persistent list and clear drafts
+        const saveContract = () => {
+            try {
+                const savedConfig = localStorage.getItem("contract_draft");
+                const savedRecipients = localStorage.getItem("recipients_draft");
+
+                if (savedConfig && savedRecipients) {
+                    const config = JSON.parse(savedConfig);
+                    const recipients = JSON.parse(savedRecipients);
+
+                    // Comparison logic for status
+                    const now = new Date();
+                    const currentFormatted = now.toLocaleString('pt-BR', {
+                        day: '2-digit',
+                        month: '2-digit',
+                        year: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit'
+                    }).replace(',', '');
+
+                    // Format of vestingStartDate is usually "dd/mm/yyyy, hh:mm" or "dd/mm/yyyy hh:mm"
+                    // We normalize both to compare only date and hour/minute
+                    const normalize = (s: string) => s.replace(/[,]/g, '').trim();
+                    const isNow = normalize(config.vestingStartDate || "") === normalize(currentFormatted);
+
+                    // Create a unique ID and set initial status
+                    const newContract = {
+                        ...config,
+                        recipients,
+                        id: `ct-${Date.now()}`,
+                        createdAt: new Date().toISOString(),
+                        status: isNow ? "em-andamento" : "agendado",
+                        progress: 0,
+                        unlockedAmount: 0,
+                        totalAmount: recipients.reduce((sum: number, r: any) => sum + (parseFloat(r.amount) || 0), 0)
+                    };
+
+                    // Get existing contracts or init empty list
+                    const existingStr = localStorage.getItem("created_contracts");
+                    const existing = existingStr ? JSON.parse(existingStr) : [];
+
+                    // Add new contract
+                    localStorage.setItem("created_contracts", JSON.stringify([newContract, ...existing]));
+
+                    // Set as selected contract for immediate viewing
+                    localStorage.setItem("selected_contract", JSON.stringify(newContract));
+
+                    // Clear drafts
+                    localStorage.removeItem("contract_draft");
+                    localStorage.removeItem("recipients_draft");
+                }
+            } catch (e) {
+                console.error("Error saving contract:", e);
+            }
+        };
+
+        saveContract();
+
+        // Auto-trigger toast after 2 seconds
+        const timer = setTimeout(() => {
+            setShowToast(true);
+            // Navigate to success page after 4 more seconds
+            setTimeout(() => {
+                router.push("/sucesso");
+            }, 4000);
+        }, 2000);
+
+        return () => clearTimeout(timer);
+    }, [router]);
+
+    return (
+        <div className="bg-black text-white min-h-screen font-sans">
+            {/* Toast Notification */}
+            {showToast && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
+                    <div className="w-full max-w-md bg-[#2D2D2D] flex items-center justify-between p-4 rounded-[14px] shadow-2xl border border-white/10 animate-in zoom-in-95 duration-300">
+                        <div className="flex-1 pr-4">
+                            <p className="text-white font-bold text-[15px] leading-tight tracking-tight">
+                                Transação enviada! Aguarde alguns segundos para finalizar.
+                            </p>
+                        </div>
+                        <button
+                            onClick={() => setShowToast(false)}
+                            className="flex items-center justify-center text-gray-400 hover:text-white transition-colors cursor-pointer"
+                        >
+                            <div className="w-7 h-7 rounded-full border-[1.5px] border-gray-500 flex items-center justify-center">
+                                <svg fill="none" height="12" viewBox="0 0 12 12" width="12" xmlns="http://www.w3.org/2000/svg">
+                                    <path d="M1 1L11 11M1 11L11 1" stroke="currentColor" strokeLinecap="round" strokeWidth="2"></path>
+                                </svg>
+                            </div>
+                        </button>
+                    </div>
+                </div>
+            )}
+            {/* Header */}
+            <header className="bg-[#262626] px-4 py-3 border-b border-white/10 sticky top-0 z-50">
+                <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3 overflow-x-auto scrollbar-hide">
+                        <Link href="/">
+                            <span className="material-symbols-outlined text-xl text-white">home</span>
+                        </Link>
+                        <div className="flex items-center gap-1.5 whitespace-nowrap">
+                            <span className="material-symbols-outlined text-green-500 text-[18px]">check_circle</span>
+                            <span className="text-[11px] font-medium text-white">Configuração</span>
+                        </div>
+                        <div className="flex items-center gap-1.5 whitespace-nowrap">
+                            <span className="material-symbols-outlined text-green-500 text-[18px]">check_circle</span>
+                            <span className="text-[11px] font-medium text-white">Destinatários</span>
+                        </div>
+                        <div className="flex items-center gap-1.5 whitespace-nowrap">
+                            <span className="material-symbols-outlined text-green-500 text-[18px]">check_circle</span>
+                            <span className="text-[11px] font-medium text-white">Revisar</span>
+                        </div>
+                    </div>
+                    <Link href="/">
+                        <span className="material-symbols-outlined text-gray-400 text-2xl">cancel</span>
+                    </Link>
+                </div>
+            </header>
+
+            <main className="p-5 pb-20">
+                <h1 className="text-[22px] font-bold mb-6 text-white">Revisar Contrato</h1>
+
+                {/* Tabs */}
+                <div className="flex items-center gap-8 mb-8 border-b border-white/5">
+                    <div className="flex flex-col pb-1">
+                        <span className="text-[15px] font-semibold text-gray-500">Falha (0)</span>
+                    </div>
+                    <div className="flex flex-col border-b-2 border-[#EAB308] pb-1">
+                        <span className="text-[15px] font-semibold text-[#EAB308]">Sucesso (1)</span>
+                    </div>
+                </div>
+
+                {/* Content */}
+                <div className="space-y-8">
+                    <div>
+                        <h2 className="text-[15px] text-white font-bold mb-5 tracking-wide">Destinatário 1</h2>
+
+                        <div className="space-y-6 bg-[#1A1A1A] p-5 rounded-2xl border border-white/5 shadow-inner">
+                            {/* Total Amount */}
+                            <div className="space-y-2">
+                                <p className="text-[14px] text-gray-400 font-medium tracking-tight">Quantidade Total</p>
+                                <div className="flex items-center gap-3 bg-black/40 p-3 rounded-xl border border-white/5">
+                                    <div className="w-6 h-6 rounded-full bg-[#EAB308] flex items-center justify-center overflow-hidden shadow-lg shrink-0">
+                                        <Image
+                                            alt="Token icon"
+                                            className="w-full h-full object-cover"
+                                            src="https://lh3.googleusercontent.com/aida-public/AB6AXuDELC6datmaXBtzPcglHQvij3C2uLarSwYfXazFnMbIez92A7-NvXV2X_NxWgAoLHVftJFDtEDcrRiJziKR3-u-etDFvhVxJ0ZWxPFihObSXPEYbTMDRrGQWQXR7l8FjYa6Jlhe_zigt0Je3Uc6JmU8hkdPacIspEg1P5vWHwk2B-VQQbcSnEID5mnokuGf7ma_gGeqe-A9Nu1MUBOJI7xnxJAjKfWTB1ZcOhqASWGfnzxmEU59p77RN13h3f0rZ9Wdb4Mm7qfmmOg"
+                                            width={24}
+                                            height={24}
+                                        />
+                                    </div>
+                                    <div className="flex items-baseline gap-2">
+                                        <span className="text-[16px] font-extrabold text-white">8 BDC</span>
+                                        <span className="text-[13px] text-gray-500 font-medium">($ 0)</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Recipient Address */}
+                            <div className="space-y-2">
+                                <p className="text-[14px] font-bold text-white tracking-tight">Endereço Destinatários</p>
+                                <div className="flex items-center gap-3 bg-black/40 p-3 rounded-xl border border-white/5 group active:scale-[0.99] transition-all">
+                                    <div className="w-6 h-6 rounded-full bg-[#EAB308] flex items-center justify-center overflow-hidden shadow-lg shrink-0">
+                                        <Image
+                                            alt="Wallet icon"
+                                            className="w-full h-full object-cover"
+                                            src="https://lh3.googleusercontent.com/aida-public/AB6AXuCeVlKLfaMkZi1LOCPkjlscauHReitOAiqDKBDwA5W_VRHj8XCXhxvXLNO04CJghxgO7hXqpJ5twsvJrzY6ARkTmpMZn8B8beSDgk65lsQleKPMdL9hfvYcrfZawPMF-yl9B8oTVTxOZyFXhjkbPRoo3ALt2HsrhoKOfRLTBMO6TOe3MRfcy5LGYmWs-QfTkaKmD-NfcqEkADFp1-eQ62e5guLCzRV4U7rsSV5nJuYSR0r3GNI-6Ga7HR86gsDxe81dWBu-1Mvv9QQ"
+                                            width={24}
+                                            height={24}
+                                        />
+                                    </div>
+                                    <span className="text-[15px] text-gray-300 font-mono tracking-tight">Ctauy54N...5jppZt</span>
+                                    <span className="material-symbols-outlined text-gray-500 text-sm ml-auto">content_copy</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </main>
+        </div>
+    );
+}
