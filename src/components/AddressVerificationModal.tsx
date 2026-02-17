@@ -16,7 +16,6 @@ const AddressVerificationModal: React.FC<AddressVerificationModalProps> = ({
     address = "Da51JLCnUfn3L3RDNeYkn7kxr"
 }) => {
     const [agreedTerms, setAgreedTerms] = useState(false);
-    const [usingLedger, setUsingLedger] = useState(false);
 
     if (!isOpen) return null;
 
@@ -69,29 +68,6 @@ const AddressVerificationModal: React.FC<AddressVerificationModalProps> = ({
                             <span className="text-[13px] text-gray-300 leading-tight">
                                 Aceito os <a className="text-[#D4AF37] hover:underline" href="#">Termos de uso</a> e a <a className="text-[#D4AF37] hover:underline" href="#">Política de Privacidade</a> e confirmo que não sou residente nem estou localizado em nenhum <a className="text-[#D4AF37] hover:underline" href="#">país ou região com restrições</a>.
                             </span>
-                        </label>
-
-                        <label className="flex items-center space-x-3 cursor-pointer group">
-                            <div>
-                                <input
-                                    checked={usingLedger}
-                                    onChange={(e) => setUsingLedger(e.target.checked)}
-                                    className="h-4 w-4 rounded border-gray-500 bg-transparent text-[#D4AF37] focus:ring-[#D4AF37] focus:ring-offset-0 transition-all cursor-pointer"
-                                    type="checkbox"
-                                />
-                            </div>
-                            <div className="flex items-center space-x-1.5 relative">
-                                <span className="text-[13px] text-gray-300">
-                                    Estou usando Ledger ou SquadsX
-                                </span>
-                                <div className="relative group flex items-center">
-                                    <span className="material-symbols-outlined text-[16px] text-gray-400 cursor-pointer hover:text-white transition-colors">info</span>
-                                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-2 bg-[#2C2C2E] border border-white/10 text-zinc-200 text-[10px] rounded-lg shadow-xl opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50 text-center font-medium leading-snug">
-                                        Marque esta opção se estiver utilizando uma carteira de hardware (Ledger) ou uma conta multisig (SquadsX) para assinar a transação.
-                                        <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-[#2C2C2E]"></div>
-                                    </div>
-                                </div>
-                            </div>
                         </label>
                     </div>
 

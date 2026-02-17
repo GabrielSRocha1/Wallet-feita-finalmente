@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import SplashScreen from "./SplashScreen";
 import { WalletProvider } from "@/contexts/WalletContext";
 
@@ -10,6 +10,11 @@ export default function ClientLayout({
     children: React.ReactNode;
 }) {
     const [showSplash, setShowSplash] = useState(true);
+
+    // Callback memoizado para evitar que o SplashScreen recrie seu timer a cada render
+    const handleSplashFinish = useCallback(() => {
+        setShowSplash(false);
+    }, []);
 
     useEffect(() => {
         // Garantia de segurança: Forçar saída do splash após 3.5s caso o callback falhe
@@ -22,7 +27,7 @@ export default function ClientLayout({
     return (
         <WalletProvider>
             <div className="bg-zinc-950 min-h-screen selection:bg-[#EAB308]/30">
-                {showSplash && <SplashScreen onFinish={() => setShowSplash(false)} />}
+                {showSplash && <SplashScreen onFinish={handleSplashFinish} />}
 
                 {/* Só renderiza o conteúdo principal quando o splash terminar para evitar saltos de layout */}
                 {!showSplash && (

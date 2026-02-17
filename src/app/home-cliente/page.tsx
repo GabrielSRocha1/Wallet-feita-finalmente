@@ -61,8 +61,8 @@ export default function HomeClientePage() {
                             else if (unit.includes('hora')) durationMs = duration * 3600000;
                             else if (unit.includes('dia')) durationMs = duration * 86400000;
                             else if (unit.includes('semana')) durationMs = duration * 7 * 86400000;
-                            else if (unit.includes('mês') || unit.includes('mes')) durationMs = duration * 30 * 86400000;
-                            else durationMs = duration * 365 * 86400000;
+                            else if (unit.includes('mês') || unit.includes('mes')) durationMs = duration * 30.44 * 86400000;
+                            else durationMs = duration * 365.25 * 86400000;
 
                             const progress = Math.min(1, (now - start) / durationMs);
 
@@ -164,8 +164,8 @@ export default function HomeClientePage() {
                     else if (unit.includes('hora')) durationMs = duration * 60 * 60 * 1000;
                     else if (unit.includes('dia')) durationMs = duration * 24 * 60 * 60 * 1000;
                     else if (unit.includes('semana')) durationMs = duration * 7 * 24 * 60 * 60 * 1000;
-                    else if (unit.includes('mês') || unit.includes('mes')) durationMs = duration * 30 * 24 * 60 * 60 * 1000;
-                    else durationMs = duration * 365 * 24 * 60 * 60 * 1000;
+                    else if (unit.includes('mês') || unit.includes('mes')) durationMs = duration * 30.44 * 24 * 60 * 60 * 1000;
+                    else durationMs = duration * 365.25 * 24 * 60 * 60 * 1000;
 
                     const elapsed = now - start;
                     const progress = Math.min(1, elapsed / durationMs);
@@ -230,11 +230,36 @@ export default function HomeClientePage() {
     // Filter Logic - Normalized for active category selection
     const relevantContracts = React.useMemo(() => {
         if (!publicKey) return [];
-        if (isAdminUser) return contracts;
-        return contracts.filter((c: any) =>
-            c.recipients?.some((r: any) => r.walletAddress?.toLowerCase() === publicKey.toLowerCase()) ||
-            c.senderAddress?.toLowerCase() === publicKey.toLowerCase()
-        );
+
+        console.log(`[Filter] Connected user: ${publicKey} (IsAdmin: ${isAdminUser})`);
+
+        if (isAdminUser) {
+            console.log(`[Filter] Admin mode: Returning all ${contracts.length} contracts.`);
+            return contracts;
+        }
+
+        const filtered = contracts.filter((c: any) => {
+            const userKey = publicKey.toLowerCase().trim();
+
+            // Check if user is recipient
+            const isRecipient = c.recipients?.some((r: any) => {
+                const rAddr = (r.walletAddress || "").toLowerCase().trim();
+                const match = rAddr === userKey;
+                if (match) console.log(`[Filter] Match found for recipient ${rAddr} in contract ${c.id}`);
+                return match;
+            });
+
+            // Check if user is sender
+            const sAddr = (c.senderAddress || "").toLowerCase().trim();
+            const isSender = sAddr === userKey;
+
+            if (isSender) console.log(`[Filter] Match found for sender ${sAddr} in contract ${c.id}`);
+
+            return isRecipient || isSender;
+        });
+
+        console.log(`[Filter] Filtered ${filtered.length} contracts for user ${publicKey}`);
+        return filtered;
     }, [contracts, publicKey, isAdminUser]);
 
     const filteredByStatus = relevantContracts.filter((contract: any) => {
@@ -273,6 +298,27 @@ export default function HomeClientePage() {
         return contractStatus === activeFilter;
     });
 
+    // Click outside handler for wallet dropdown
+    const dropdownRef = React.useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+                setIsWalletDropdownOpen(false);
+            }
+        };
+
+        if (isWalletDropdownOpen) {
+            document.addEventListener("mousedown", handleClickOutside);
+        } else {
+            document.removeEventListener("mousedown", handleClickOutside);
+        }
+
+        return () => {
+            document.removeEventListener("mousedown", handleClickOutside);
+        };
+    }, [isWalletDropdownOpen]);
+
     return (
         <div className="bg-black min-h-screen text-white pb-48 font-sans select-none safe-container">
             <style dangerouslySetInnerHTML={{
@@ -298,7 +344,7 @@ export default function HomeClientePage() {
                             Conectar carteira
                         </button>
                     ) : (
-                        <div className="relative">
+                        <div className="relative" ref={dropdownRef}>
                             <button
                                 onClick={() => setIsWalletDropdownOpen(!isWalletDropdownOpen)}
                                 className="w-48 bg-zinc-900 border border-white/10 px-4 py-2 rounded-xl flex items-center justify-between gap-2 hover:bg-zinc-800 transition-colors cursor-pointer"
@@ -496,6 +542,9 @@ export default function HomeClientePage() {
                                                 if (unit.includes('minuto')) durationMs = duration * 60 * 1000;
                                                 else if (unit.includes('hora')) durationMs = duration * 3600000;
                                                 else if (unit.includes('dia')) durationMs = duration * 86400000;
+                                                else if (unit.includes('semana')) durationMs = duration * 7 * 86400000;
+                                                else if (unit.includes('mês') || unit.includes('mes')) durationMs = duration * 30.44 * 86400000;
+                                                else durationMs = duration * 365.25 * 86400000;
                                                 const progress = Math.min(100, Math.max(0, Math.round(((now - start) / durationMs) * 100)) || 0);
                                                 return <span className="text-[10px] text-[#EAB308] font-black">{progress}%</span>;
                                             })()}
@@ -517,6 +566,9 @@ export default function HomeClientePage() {
                                                     if (unit.includes('minuto')) durationMs = duration * 60 * 1000;
                                                     else if (unit.includes('hora')) durationMs = duration * 3600000;
                                                     else if (unit.includes('dia')) durationMs = duration * 86400000;
+                                                    else if (unit.includes('semana')) durationMs = duration * 7 * 86400000;
+                                                    else if (unit.includes('mês') || unit.includes('mes')) durationMs = duration * 30.44 * 86400000;
+                                                    else durationMs = duration * 365.25 * 86400000;
                                                     const unlocked = total * Math.min(1, Math.max(0, (now - start) / durationMs));
                                                     return unlocked.toLocaleString(undefined, { maximumFractionDigits: 2 });
                                                 })()} {contract.selectedToken?.symbol}

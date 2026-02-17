@@ -9,7 +9,10 @@ interface ConnectWalletModalProps {
 }
 
 const ConnectWalletModal: React.FC<ConnectWalletModalProps> = ({ isOpen, onClose }) => {
-    const { connectWallet, loading: connecting, error, clearError } = useWallet();
+    const { connectWallet, error, clearError } = useWallet();
+    // Estado local de conexão - não depende do loading global do contexto
+    // que pode ser acionado pelo auto-reconnect do useSolana
+    const [connecting, setConnecting] = React.useState(false);
     const [selectedWallet, setSelectedWallet] = React.useState<{ name: string; url: string; id: string } | null>(null);
     const [isMobile, setIsMobile] = React.useState(false);
 
@@ -96,11 +99,14 @@ const ConnectWalletModal: React.FC<ConnectWalletModalProps> = ({ isOpen, onClose
         if (wallet.isInstalled) {
             clearError();
             setSelectedWallet(null);
+            setConnecting(true);
 
             try {
                 await connectWallet(wallet.id);
+                setConnecting(false);
                 onClose();
             } catch (err) {
+                setConnecting(false);
                 // Erro já tratado no contexto
                 console.error('Erro ao conectar:', err);
             }

@@ -32,6 +32,23 @@ export default function VestingContractDetailsPage() {
             let hasChanges = false;
             let updates: any = {};
 
+            // 0. Check for Scheduled -> In Progress
+            if (contractData.status === "agendado") {
+                try {
+                    const [datePart, timePart] = contractData.vestingStartDate.split(', ');
+                    const [day, month, year] = datePart.split('/').map(Number);
+                    const [hour, minute] = timePart.split(':').map(Number);
+                    const start = new Date(year, month - 1, day, hour, minute).getTime();
+
+                    if (Date.now() >= start) {
+                        updates.status = "em-andamento";
+                        hasChanges = true;
+                    }
+                } catch (e) {
+                    console.error("Error checking schedule start:", e);
+                }
+            }
+
             // 1. Check for Auto-Completion
             if (stats.progress >= 100 && contractData.status !== "completo" && contractData.status !== "cancelado") {
                 updates.status = "completo";
@@ -77,7 +94,7 @@ export default function VestingContractDetailsPage() {
                         unlockedAmount: contract.unlockedAmount || 0,
                         claimedAmount: contract.claimedAmount || 0,
                         mintAddress: contract.selectedToken?.mintAddress || "DmSnH6gmikCc4s4oWuRGXZXr8wVfrbykWfby",
-                        senderAddress: connectedAddress || "CtauGKgV4jmVyFQ1SWcGjy3s5jppZt",
+                        senderAddress: contract.senderAddress || connectedAddress || "CtauGKgV4jmVyFQ1SWcGjy3s5jppZt",
                         recipientAddress: contract.recipients?.[0]?.walletAddress || "Indefinido",
                         vestingStartDate: contract.vestingStartDate
                     });
@@ -159,8 +176,8 @@ export default function VestingContractDetailsPage() {
             else if (unit.includes('hora')) durationMs = duration * 3600000;
             else if (unit.includes('dia')) durationMs = duration * 86400000;
             else if (unit.includes('semana')) durationMs = duration * 7 * 86400000;
-            else if (unit.includes('mês') || unit.includes('mes')) durationMs = duration * 30 * 86400000;
-            else durationMs = duration * 365 * 86400000;
+            else if (unit.includes('mês') || unit.includes('mes')) durationMs = duration * 30.44 * 86400000;
+            else durationMs = duration * 365.25 * 86400000;
 
             const progress = Math.min(1, (now - start) / durationMs);
             const unlocked = total * progress;
@@ -569,22 +586,68 @@ export default function VestingContractDetailsPage() {
                             </div>
 
                             {/* Stepped Bars */}
-                            {Array.from({ length: 24 }).map((_, i) => {
-                                const stepProgress = (i / 23) * 100;
-                                const isUnlocked = stepProgress <= dynamicStats.progress;
-                                const height = ((i + 1) / 24) * 100;
+                            {/* Stepped Bars */}
+                            {(() => {
+                                const calculateChartSteps = () => {
+                                    const duration = parseInt(contractData.vestingDuration || "0");
+                                    const unit = (contractData.selectedTimeUnit || "").toLowerCase();
+                                    const schedule = (contractData.selectedSchedule || "meses").toLowerCase(); // Default to months if missing
 
-                                return (
-                                    <div
-                                        key={i}
-                                        className={`flex-1 transition-all duration-500 rounded-t-sm ${isUnlocked
-                                            ? 'bg-gradient-to-t from-[#EAB308]/40 to-[#EAB308] opacity-100 shadow-[0_0_10px_rgba(234,179,8,0.2)]'
-                                            : 'bg-zinc-800/40 opacity-40'
-                                            }`}
-                                        style={{ height: `${height}%` }}
-                                    ></div>
-                                );
-                            })}
+                                    const getMultiplier = (u: string) => {
+                                        if (u.includes('minuto')) return 60 * 1000;
+                                        if (u.includes('hora')) return 3600 * 1000;
+                                        if (u.includes('dia')) return 86400 * 1000;
+                                        if (u.includes('semana')) return 7 * 86400 * 1000;
+                                        if (u.includes('mês') || u.includes('mes')) return 30.44 * 86400 * 1000; // Augment precision
+                                        if (u.includes('ano')) return 365.25 * 86400 * 1000;
+                                        return 0;
+                                    };
+
+                                    const durationMs = duration * getMultiplier(unit);
+                                    // Schedule implies "Every 1 X"
+                                    const scheduleMs = 1 * getMultiplier(schedule);
+
+                                    if (scheduleMs <= 0 || durationMs <= 0) return 24; // Fallback
+
+                                    const steps = Math.ceil(durationMs / scheduleMs);
+                                    // Cap at 100 bars for performance/UI safety, min 1
+                                    return Math.max(1, Math.min(steps, 100));
+                                };
+
+                                const totalSteps = calculateChartSteps();
+
+                                return Array.from({ length: totalSteps }).map((_, i) => {
+                                    // Calculate progress required for this step to be unlocked
+                                    // If we have N steps, step i (0-indexed) represents the interval [i/N, (i+1)/N]
+                                    // A step is fully unlocked when progress >= (i + 1) / N
+                                    // Or partially? Usually linear vesting means continuous.
+                                    // But stepped chart implies discrete blocks.
+                                    // If Schedule is "Monthly", it usually unlocks at the END of the month? Or linearly?
+                                    // "Linear" vesting usually means block-by-block if schedule is set.
+                                    // Let's assume proportional fill for visual effect if linear, or binary if discrete.
+                                    // For a nice UI, let's make it binary based on the timeline.
+
+                                    // Change: Color the bar if we are *inside* or *past* this step, not just fully completed.
+                                    // This makes the chart look like it enters the bar as the "Unlock" line moves.
+                                    const stepThreshold = (i / totalSteps) * 100;
+                                    const isUnlocked = dynamicStats.progress > stepThreshold;
+
+                                    // Visual height: Linear increase from 0 to 100%
+                                    const height = ((i + 1) / totalSteps) * 100;
+
+                                    return (
+                                        <div
+                                            key={i}
+                                            className={`flex-1 transition-all duration-500 rounded-t-sm ${isUnlocked
+                                                ? 'bg-gradient-to-t from-[#EAB308]/40 to-[#EAB308] opacity-100 shadow-[0_0_10px_rgba(234,179,8,0.2)]'
+                                                : 'bg-zinc-800/40 opacity-40'
+                                                }`}
+                                            style={{ height: `${height}%` }}
+                                            title={`Passo ${i + 1}/${totalSteps}`}
+                                        ></div>
+                                    );
+                                });
+                            })()}
 
                             {/* Floating UNLOCK Cursor */}
                             <div

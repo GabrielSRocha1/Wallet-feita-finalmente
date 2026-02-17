@@ -5,11 +5,20 @@ import Link from "next/link";
 import AddressVerificationModal from "@/components/AddressVerificationModal";
 import ExitWarningModal from "@/components/ExitWarningModal";
 import { useRouter } from "next/navigation";
+import { useWallet } from "@/contexts/WalletContext"; // Custom hook
+import { Transaction, SystemProgram, LAMPORTS_PER_SOL, PublicKey, Connection, clusterApiUrl } from '@solana/web3.js';
 
 export default function ReviewPage() {
     const router = useRouter();
+    // Use custom wallet context instead of @solana/wallet-adapter-react
+    const { publicKey, wallet } = useWallet();
+
+    // Create connection to Devnet manually since we don't have ConnectionProvider
+    const connection = new Connection(clusterApiUrl('devnet'), 'confirmed');
+
     const [isVerificationModalOpen, setIsVerificationModalOpen] = useState(false);
     const [isWarningModalOpen, setIsWarningModalOpen] = useState(false);
+    const [isTransactionPending, setIsTransactionPending] = useState(false);
 
     // Draft states
     const [config, setConfig] = useState<any>(null);
@@ -33,6 +42,67 @@ export default function ReviewPage() {
         if (savedConfig) setConfig(JSON.parse(savedConfig));
         if (savedRecipients) setRecipients(JSON.parse(savedRecipients));
     }, []);
+
+    const handleCreateContract = async () => {
+        if (!publicKey || !wallet) {
+            alert("Por favor, conecte sua carteira primeiro.");
+            return;
+        }
+
+        try {
+            setIsTransactionPending(true);
+
+            // Create a test transaction to visualize fees (0.000001 SOL to self)
+            const transaction = new Transaction().add(
+                SystemProgram.transfer({
+                    fromPubkey: new PublicKey(publicKey),
+                    toPubkey: new PublicKey(publicKey),
+                    lamports: 1000, // Minimal amount
+                })
+            );
+
+            const { blockhash } = await connection.getLatestBlockhash();
+            transaction.recentBlockhash = blockhash;
+            transaction.feePayer = new PublicKey(publicKey);
+
+            // Send transaction using the custom wallet adapter object
+            // Most adapters (Phantom, Solflare) implement sendTransaction(tx, connection)
+            let signature = "";
+
+            if (wallet.sendTransaction) {
+                signature = await wallet.sendTransaction(transaction, connection);
+            } else if (wallet.signAndSendTransaction) {
+                // Some direct providers like window.solana use signAndSendTransaction
+                const { signature: sig } = await wallet.signAndSendTransaction(transaction);
+                signature = sig;
+            } else {
+                throw new Error("Carteira não suporta envio de transações.");
+            }
+
+            // Wait for confirmation
+            await connection.confirmTransaction(signature, 'confirmed');
+
+            // Success Message
+            alert("Contrato criado com sucesso!");
+
+            // Proceed
+            setIsVerificationModalOpen(false);
+            router.push("/confirmar");
+
+        } catch (error: any) {
+            console.error("Transaction failed:", error);
+
+            // Analyze error message for cancellation
+            const msg = error.message || String(error);
+            if (msg.includes("User rejected") || msg.includes("rejected the request") || msg.includes("denied transaction")) {
+                alert("Transação cancelada pelo usuário.");
+            } else {
+                alert(`Falha na transação: ${msg}`);
+            }
+        } finally {
+            setIsTransactionPending(false);
+        }
+    };
 
     const handleGoHome = () => {
         setIsWarningModalOpen(true);
@@ -262,9 +332,9 @@ export default function ReviewPage() {
                             label="Duração Vesting"
                             value={`${config?.vestingDuration || "0"} ${config?.selectedTimeUnit || ""}`}
                         />
-                        <DetailItem label="Frequência de lançamento" value="Horas" />
+                        <DetailItem label="Frequência de lançamento" value={config?.selectedSchedule || "Não definida"} />
                         <DetailItem
-                            label="Cliff bloqueado"
+                            label="Início do Cliff"
                             value={config?.vestingStartDate || "Não definida"}
                             showInfo
                             infoText="Data e hora de início do período de vesting, a partir da qual os tokens começarão a ser contabilizados."
@@ -323,19 +393,17 @@ export default function ReviewPage() {
                 </Link>
                 <button
                     onClick={() => setIsVerificationModalOpen(true)}
-                    className="flex-1 bg-gradient-to-r from-[#8B612E] to-[#5C401D] text-white font-bold py-4 rounded-2xl text-[16px] shadow-lg hover:opacity-90 transition-opacity flex items-center justify-center cursor-pointer active:scale-95"
+                    disabled={isTransactionPending}
+                    className="flex-1 bg-gradient-to-r from-[#8B612E] to-[#5C401D] text-white font-bold py-4 rounded-2xl text-[16px] shadow-lg hover:opacity-90 transition-opacity flex items-center justify-center cursor-pointer active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                    Criar Vesting
+                    {isTransactionPending ? 'Processando...' : 'Criar Vesting'}
                 </button>
             </footer>
 
             <AddressVerificationModal
                 isOpen={isVerificationModalOpen}
-                onClose={() => setIsVerificationModalOpen(false)}
-                onConfirm={() => {
-                    setIsVerificationModalOpen(false);
-                    window.location.href = "/confirmar";
-                }}
+                onClose={() => !isTransactionPending && setIsVerificationModalOpen(false)}
+                onConfirm={handleCreateContract}
                 address={walletAddress}
             />
 

@@ -11,7 +11,7 @@ export default function ConfirmationPage() {
 
     useEffect(() => {
         // Save the contract to the persistent list and clear drafts
-        const saveContract = () => {
+        const saveContract = async () => {
             try {
                 const savedConfig = localStorage.getItem("contract_draft");
                 const savedRecipients = localStorage.getItem("recipients_draft");
@@ -22,26 +22,40 @@ export default function ConfirmationPage() {
 
                     // Comparison logic for status
                     const now = new Date();
-                    const currentFormatted = now.toLocaleString('pt-BR', {
-                        day: '2-digit',
-                        month: '2-digit',
-                        year: 'numeric',
-                        hour: '2-digit',
-                        minute: '2-digit'
-                    }).replace(',', '');
 
-                    // Format of vestingStartDate is usually "dd/mm/yyyy, hh:mm" or "dd/mm/yyyy hh:mm"
-                    // We normalize both to compare only date and hour/minute
-                    const normalize = (s: string) => s.replace(/[,]/g, '').trim();
-                    const isNow = normalize(config.vestingStartDate || "") === normalize(currentFormatted);
+                    // Helper to parse "dd/mm/yyyy, hh:mm"
+                    const parseDate = (s: string) => {
+                        try {
+                            const [d, t] = s.split(', ');
+                            const [day, month, year] = d.split('/').map(Number);
+                            const [hour, minute] = t.split(':').map(Number);
+                            return new Date(year, month - 1, day, hour, minute);
+                        } catch (e) {
+                            return new Date(); // Fallback
+                        }
+                    };
+
+                    const startDate = parseDate(config.vestingStartDate || "");
+                    const isStarted = startDate.getTime() <= now.getTime();
+
+                    // Get sender address from cookie
+                    const getCookie = (name: string) => {
+                        const value = `; ${document.cookie}`;
+                        const parts = value.split(`; ${name}=`);
+                        if (parts.length === 2) return parts.pop()?.split(';').shift();
+                    };
+                    const senderAddress = getCookie('wallet_address') || "";
+
+                    const status = isStarted ? "em-andamento" : "agendado";
 
                     // Create a unique ID and set initial status
                     const newContract = {
                         ...config,
                         recipients,
+                        senderAddress, // Store who created it
                         id: `ct-${Date.now()}`,
                         createdAt: new Date().toISOString(),
-                        status: isNow ? "em-andamento" : "agendado",
+                        status,
                         progress: 0,
                         unlockedAmount: 0,
                         totalAmount: recipients.reduce((sum: number, r: any) => sum + (parseFloat(r.amount) || 0), 0)
@@ -56,6 +70,33 @@ export default function ConfirmationPage() {
 
                     // Set as selected contract for immediate viewing
                     localStorage.setItem("selected_contract", JSON.stringify(newContract));
+
+                    // SEND EMAILS
+                    recipients.forEach((recipient: any) => {
+                        if (recipient.email) {
+                            const contractDataForEmail = {
+                                tokenName: config.selectedToken?.name || "Token",
+                                tokenSymbol: config.selectedToken?.symbol || "TKN",
+                                totalAmount: recipient.amount,
+                                status: status,
+                                vestingStartDate: config.vestingStartDate,
+                                vestingDuration: config.vestingDuration,
+                                selectedTimeUnit: config.selectedTimeUnit,
+                                selectedSchedule: config.selectedSchedule
+                            };
+
+                            fetch('/api/send-email', {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                },
+                                body: JSON.stringify({
+                                    recipientEmail: recipient.email,
+                                    contractData: contractDataForEmail
+                                }),
+                            }).catch(err => console.error("Error sending email:", err));
+                        }
+                    });
 
                     // Clear drafts
                     localStorage.removeItem("contract_draft");

@@ -204,7 +204,42 @@ export default function ConfigurationPage() {
                             onSelect={setSelectedTimeUnit}
                         />
                     </div>
-                    <p className="text-xs text-gray-500">Aquisição total em <span className="text-gray-300 font-bold">mm, dd, yyyy, hh:mm AM</span> <span className="text-red-500">*</span></p>
+                    <p className="text-xs text-gray-500">Aquisição total em <span className="text-gray-300 font-bold">
+                        {(() => {
+                            if (!vestingDuration) return "mm, dd, yyyy, hh:mm AM";
+                            try {
+                                const duration = parseInt(vestingDuration);
+                                if (isNaN(duration)) return "mm, dd, yyyy, hh:mm AM";
+
+                                let baseDate = new Date();
+                                if (vestingStartDate && vestingStartDate !== "dd/mm/yyyy, hh:mm") {
+                                    const [d, t] = vestingStartDate.split(', ');
+                                    const [day, month, year] = d.split('/').map(Number);
+                                    const [hour, minute] = t.split(':').map(Number);
+                                    baseDate = new Date(year, month - 1, day, hour, minute);
+                                }
+
+                                const unit = selectedTimeUnit.toLowerCase();
+                                if (unit.includes('minuto')) baseDate.setMinutes(baseDate.getMinutes() + duration);
+                                else if (unit.includes('hora')) baseDate.setHours(baseDate.getHours() + duration);
+                                else if (unit.includes('dia')) baseDate.setDate(baseDate.getDate() + duration);
+                                else if (unit.includes('semana')) baseDate.setDate(baseDate.getDate() + (duration * 7));
+                                else if (unit.includes('mês') || unit.includes('mes')) baseDate.setMonth(baseDate.getMonth() + duration);
+                                else if (unit.includes('ano')) baseDate.setFullYear(baseDate.getFullYear() + duration);
+
+                                return baseDate.toLocaleString('en-US', {
+                                    month: '2-digit',
+                                    day: '2-digit',
+                                    year: 'numeric',
+                                    hour: '2-digit',
+                                    minute: '2-digit',
+                                    hour12: true
+                                });
+                            } catch (e) {
+                                return "mm, dd, yyyy, hh:mm AM";
+                            }
+                        })()}
+                    </span> <span className="text-red-500">*</span></p>
                 </section>
 
                 {/* Unlock Schedule Section */}

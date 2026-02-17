@@ -56,24 +56,82 @@ export const connectWalletAdapter = async (walletName: string) => {
     const wallets = detectWallets() as any;
     const wallet = wallets[walletName.toLowerCase()];
 
+    console.log(`[WalletAdapter] Tentando conectar: ${walletName}`);
+    console.log(`[WalletAdapter] Wallet object:`, wallet);
+    console.log(`[WalletAdapter] ReadyState:`, wallet?.readyState);
+
     if (!wallet) {
         throw new Error(`A carteira ${walletName} não foi detectada.`);
     }
 
+    // Verifica se a wallet está realmente disponível (não apenas o adapter)
+    // Fallback manual para o caso do readyState do adapter falhar ou demorar a atualizar
+    const w = typeof window !== 'undefined' ? window as any : {};
+    const isActuallyInstalled = wallet.readyState !== WalletReadyState.NotDetected ||
+        (walletName.toLowerCase() === 'phantom' && !!(w.phantom?.solana || w.solana?.isPhantom)) ||
+        (walletName.toLowerCase() === 'solflare' && !!(w.solflare || w.solana?.isSolflare)) ||
+        (walletName.toLowerCase() === 'okx' && !!w.okxwallet?.solana);
+
+    if (!isActuallyInstalled) {
+        throw new Error(`A extensão ${walletName} não está instalada. Por favor, instale a extensão e recarregue a página.`);
+    }
+
     try {
+        console.log(`[WalletAdapter] Chamando wallet.connect() para ${walletName}...`);
+
         // Algumas wallets (like Solflare) podem demorar um pouco para injetar ou inicializar
         await wallet.connect();
+
+        console.log(`[WalletAdapter] Connect() completou. PublicKey:`, wallet.publicKey);
 
         // Pequena espera para garantir que o objeto publicKey foi populado
         let attempts = 0;
         while (!wallet.publicKey && attempts < 10) {
+            console.log(`[WalletAdapter] Aguardando publicKey... tentativa ${attempts + 1}/10`);
             await new Promise(r => setTimeout(r, 100));
             attempts++;
         }
 
+        // --- FALLBACK DIRETO VIA WINDOW OBJECT ---
+        // Se após a tentativa padrão não tivermos publicKey, tentamos via objeto direto
+        // Isso resolve casos onde o adapter não está sincronizado com a extensão
+        if (!wallet.publicKey) {
+            console.warn(`[WalletAdapter] Adapter falhou em retornar publicKey. Tentando fallback direto para ${walletName}...`);
+            const w = window as any;
+            let directProvider = null;
+
+            if (walletName.toLowerCase() === 'solflare') {
+                directProvider = w.solflare || (w.solana?.isSolflare ? w.solana : null);
+            } else if (walletName.toLowerCase() === 'phantom') {
+                directProvider = w.phantom?.solana || (w.solana?.isPhantom ? w.solana : null);
+            }
+
+            if (directProvider && directProvider.connect) {
+                try {
+                    console.log(`[WalletAdapter] Tentando conexão direta com provider injetado...`);
+                    const response = await directProvider.connect();
+                    const directKey = response.publicKey || directProvider.publicKey;
+
+                    if (directKey) {
+                        console.log(`[WalletAdapter] Fallback direto SUCESSO! Key: ${directKey.toString()}`);
+                        return {
+                            publicKey: directKey.toString(),
+                            wallet: directProvider, // Retorna o provider direto
+                            connected: true
+                        };
+                    }
+                } catch (directErr) {
+                    console.error(`[WalletAdapter] Erro no fallback direto:`, directErr);
+                }
+            }
+        }
+        // -----------------------------------------
+
         if (!wallet.publicKey) {
             throw new Error("A carteira conectou, mas não retornou um endereço público.");
         }
+
+        console.log(`[WalletAdapter] Conexão bem-sucedida! PublicKey: ${wallet.publicKey.toString()}`);
 
         return {
             publicKey: wallet.publicKey.toString(),
@@ -81,7 +139,16 @@ export const connectWalletAdapter = async (walletName: string) => {
             connected: true
         };
     } catch (error: any) {
-        console.error("Erro no adaptador:", error);
+        console.error(`[WalletAdapter] Erro ao conectar ${walletName}:`, error);
+
+        // Mensagens de erro mais amigáveis
+        if (error.message?.includes('User rejected')) {
+            throw new Error('Você rejeitou a conexão na carteira.');
+        }
+        if (error.message?.includes('not installed')) {
+            throw new Error(`A extensão ${walletName} não está instalada.`);
+        }
+
         throw new Error(error.message || "Falha na conexão com a carteira");
     }
 };

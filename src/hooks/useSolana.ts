@@ -114,35 +114,61 @@ export const useSolana = () => {
         });
     }, [state.wallet]);
 
-    // Auto-connect ao montar o componente
+    // Auto-connect ao montar o componente (restauração silenciosa, sem afetar loading global)
     useEffect(() => {
         const init = async () => {
             const saved = localStorage.getItem('verum_wallet_session');
-            if (saved) {
+            if (!saved) return;
+
+            try {
+                const { walletName, publicKey: savedKey } = JSON.parse(saved);
+
+                // Tenta reconectar silenciosamente
                 try {
-                    const { walletName, publicKey } = JSON.parse(saved);
+                    const result = await connectWalletAdapter(walletName);
 
-                    // Tenta reconectar silenciosamente se possível
-                    // Nota: A maioria das wallets requer interação do usuário para conectar na primeira vez,
-                    // mas se já estiver autorizada, pode conectar direto.
-                    // Aqui estamos apenas restaurando o estado se a wallet injetada já estiver conectada
-                    // ou forçando uma conexão (pode abrir popup)
+                    if (result && result.publicKey) {
+                        const admin = checkIsAdmin(result.publicKey);
+                        const vestingInfo = { totalLocked: 0, totalUnlocked: 0, tokens: [] };
 
-                    // Para evitar popup indesejado no load, verificamos se já está conectado na extensão
-                    // Isso depende da implementação específica de cada adapter.
-                    // Como simplificação, chamamos connect() que deve lidar com isso.
+                        // Atualiza sessão
+                        localStorage.setItem('verum_wallet_session', JSON.stringify({
+                            walletName,
+                            publicKey: result.publicKey,
+                            isAdmin: admin,
+                            connectedAt: Date.now()
+                        }));
+                        document.cookie = `wallet_address=${result.publicKey}; path=/; max-age=86400`;
 
-                    await connect(walletName);
-
-                } catch (e) {
-                    console.warn("Falha ao restaurar sessão:", e);
-                    localStorage.removeItem('verum_wallet_session');
+                        // Seta estado diretamente sem passar pelo `connect()` (que ativa loading)
+                        setState({
+                            connected: true,
+                            publicKey: result.publicKey,
+                            wallet: result.wallet,
+                            loading: false,
+                            error: null,
+                            vestingInfo,
+                            isAdmin: admin
+                        });
+                        return; // Sucesso
+                    }
+                } catch (reconnectError: any) {
+                    console.warn("Falha ao restaurar sessão do adapter:", reconnectError.message);
                 }
+
+                // Se falhou a reconexão via adapter, limpa a sessão corrompida
+                localStorage.removeItem('verum_wallet_session');
+                document.cookie = "wallet_address=; Max-Age=0; path=/";
+
+            } catch (e) {
+                console.warn("Falha ao restaurar sessão:", e);
+                localStorage.removeItem('verum_wallet_session');
+                document.cookie = "wallet_address=; Max-Age=0; path=/";
             }
         };
 
         init();
-    }, [connect]);
+    }, []);
 
     return {
         ...state,
