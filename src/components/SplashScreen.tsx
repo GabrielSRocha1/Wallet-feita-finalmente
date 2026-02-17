@@ -43,7 +43,7 @@ const SplashScreen: React.FC<SplashScreenProps> = ({ onFinish }) => {
                             <Image
                                 alt="Verum Gold Coin Front"
                                 className="w-full h-full object-contain p-1"
-                                src="/icon.png"
+                                src="/icon.png.png"
                                 width={160}
                                 height={160}
                                 priority
@@ -53,7 +53,7 @@ const SplashScreen: React.FC<SplashScreenProps> = ({ onFinish }) => {
                             <Image
                                 alt="Verum Gold Coin Back"
                                 className="w-full h-full object-contain p-1"
-                                src="/icon.png"
+                                src="/icon.png.png"
                                 width={160}
                                 height={160}
                                 priority

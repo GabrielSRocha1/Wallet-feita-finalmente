@@ -33,8 +33,8 @@ export const metadata: Metadata = {
   title: "Verum Vesting",
   description: "Verum Vesting Platform",
   icons: {
-    icon: "/icon.png",
-    apple: "/icon.png",
+    icon: "/icon.png.png",
+    apple: "/icon.png.png",
   }
 };
 
