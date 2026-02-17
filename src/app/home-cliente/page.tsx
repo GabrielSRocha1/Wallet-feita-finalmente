@@ -106,9 +106,17 @@ export default function HomeClientePage() {
     };
 
     const handleDisconnect = async () => {
-        await disconnectWallet();
-        setIsWalletDropdownOpen(false);
-        window.location.reload();
+        try {
+            await disconnectWallet();
+            // Clear any lingering cookies or local storage just in case
+            document.cookie = "wallet_address=; Max-Age=0; path=/";
+            localStorage.removeItem('verum_wallet_session');
+            setIsWalletDropdownOpen(false);
+            window.location.href = "/";
+        } catch (e) {
+            console.error("Erro ao desconectar:", e);
+            window.location.reload();
+        }
     };
 
     const handleCopyAddress = () => {
@@ -368,20 +376,7 @@ export default function HomeClientePage() {
                                             <span className="material-icons-round text-sm">content_copy</span>
                                             Copiar Endereço
                                         </button>
-                                        <button
-                                            onClick={async () => {
-                                                if (confirm("Deseja realmente apagar todos os contratos e dados de teste?")) {
-                                                    if (connected) await disconnectWallet();
-                                                    localStorage.clear();
-                                                    document.cookie = "wallet_address=; Max-Age=0; path=/";
-                                                    window.location.href = "/";
-                                                }
-                                            }}
-                                            className="w-full px-4 py-3 text-left text-sm text-yellow-500 hover:bg-white/5 transition-colors flex items-center gap-2 border-t border-white/5 cursor-pointer mt-1"
-                                        >
-                                            <span className="material-icons-round text-sm">delete_sweep</span>
-                                            Limpar todos os dados
-                                        </button>
+
                                         <button
                                             onClick={handleDisconnect}
                                             className="w-full px-4 py-3 text-left text-sm text-red-500 hover:bg-white/5 transition-colors flex items-center gap-2 border-t border-white/5 cursor-pointer mt-1"

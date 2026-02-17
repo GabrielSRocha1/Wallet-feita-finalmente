@@ -5,7 +5,7 @@ import { useSolana } from '@/hooks/useSolana';
 import { detectWallets } from '@/utils/wallet-adapter';
 
 // Re-exporta tipos para compatibilidade
-export type WalletName = 'phantom' | 'solflare' | 'okx' | 'verum';
+export type WalletName = 'phantom' | 'solflare' | 'okx';
 
 interface WalletContextType {
     connected: boolean;
@@ -27,7 +27,6 @@ export const isWalletInstalled = (walletName: string): boolean => {
     if (typeof window === 'undefined') return false;
     const w = window as any;
 
-    if (walletName === 'verum') return true;
 
     // 1. Detecção direta via objetos injetados (Normalmente mais rápida e confiável)
     const directPhantom = !!(w.phantom?.solana?.isPhantom || (w.solana?.isPhantom && !w.solana?.isSolflare));

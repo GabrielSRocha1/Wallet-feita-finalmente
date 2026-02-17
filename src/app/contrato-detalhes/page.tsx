@@ -391,14 +391,21 @@ export default function VestingContractDetailsPage() {
                                 </button>
                                 <button
                                     onClick={async () => {
-                                        await disconnectWallet();
-                                        setIsWalletDropdownOpen(false);
-                                        router.push('/home-cliente');
+                                        try {
+                                            await disconnectWallet();
+                                            document.cookie = "wallet_address=; Max-Age=0; path=/";
+                                            localStorage.removeItem('verum_wallet_session');
+                                            setIsWalletDropdownOpen(false);
+                                            window.location.href = '/home-cliente';
+                                        } catch (e) {
+                                            console.error("Erro ao desconectar:", e);
+                                            window.location.href = '/home-cliente';
+                                        }
                                     }}
                                     className="w-full flex items-center gap-2 px-4 py-3 text-sm text-red-500 hover:bg-white/5 transition-colors cursor-pointer"
                                 >
                                     <span className="material-icons-round text-sm">logout</span>
-                                    Disconectar
+                                    Desconectar
                                 </button>
                             </div>
                         )}

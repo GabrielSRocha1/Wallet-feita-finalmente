@@ -23,16 +23,6 @@ const ConnectWalletModal: React.FC<ConnectWalletModalProps> = ({ isOpen, onClose
     // Wallet options configuration
     const WALLET_OPTIONS = [
         {
-            id: 'verum' as const,
-            name: 'Verum',
-            url: '#',
-            icon: (
-                <div className="w-8 h-8 flex items-center justify-center bg-black rounded-lg shadow-sm">
-                    <span className="text-[#D4AF37] font-black text-xl italic">V</span>
-                </div>
-            )
-        },
-        {
             id: 'phantom' as const,
             name: 'Phantom',
             url: 'https://phantom.app/',

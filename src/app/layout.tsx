@@ -32,6 +32,10 @@ const inter = Inter({
 export const metadata: Metadata = {
   title: "Verum Vesting",
   description: "Verum Vesting Platform",
+  icons: {
+    icon: "/icon.png",
+    apple: "/icon.png",
+  }
 };
 
 export default function RootLayout({
