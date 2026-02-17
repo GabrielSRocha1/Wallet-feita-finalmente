@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { useWallet } from "@/contexts/WalletContext";
 import { useTokenMonitor } from "@/hooks/useTokenMonitor";
 import ConnectWalletModal from "@/components/ConnectWalletModal";
+import NetworkSelector from "@/components/NetworkSelector";
 
 export default function HomeClientePage() {
     const router = useRouter();
@@ -336,59 +337,63 @@ export default function HomeClientePage() {
                         <span className="text-[#EAB308] font-bold text-lg tracking-wide gold-text-gradient">Verum Vesting</span>
                     </div>
 
-                    {!connected ? (
-                        <button
-                            onClick={() => setIsConnectModalOpen(true)}
-                            className="bg-[#EAB308] hover:bg-[#CA8A04] text-black text-xs font-bold py-2.5 px-5 rounded-xl transition-all active:scale-95 shadow-lg cursor-pointer"
-                        >
-                            Conectar carteira
-                        </button>
-                    ) : (
-                        <div className="relative" ref={dropdownRef}>
-                            <button
-                                onClick={() => setIsWalletDropdownOpen(!isWalletDropdownOpen)}
-                                className="w-48 bg-zinc-900 border border-white/10 px-4 py-2 rounded-xl flex items-center justify-between gap-2 hover:bg-zinc-800 transition-colors cursor-pointer"
-                            >
-                                <span className="text-xs font-mono text-zinc-400 font-medium whitespace-nowrap">
-                                    {formatAddress(publicKey || "")}
-                                </span>
-                                <span className="material-icons-round text-sm text-zinc-500">expand_more</span>
-                            </button>
+                    <div className="flex items-center gap-3">
+                        {connected && isAdminUser && <NetworkSelector />}
 
-                            {isWalletDropdownOpen && (
-                                <div className="absolute right-0 mt-2 w-48 bg-zinc-900 border border-white/10 rounded-xl shadow-2xl overflow-hidden z-50 animate-in fade-in zoom-in-95 duration-200">
-                                    <button
-                                        onClick={handleCopyAddress}
-                                        className="w-full px-4 py-3 text-left text-sm hover:bg-white/5 transition-colors flex items-center gap-2 cursor-pointer text-zinc-300"
-                                    >
-                                        <span className="material-icons-round text-sm">content_copy</span>
-                                        Copiar Endereço
-                                    </button>
-                                    <button
-                                        onClick={async () => {
-                                            if (confirm("Deseja realmente apagar todos os contratos e dados de teste?")) {
-                                                if (connected) await disconnectWallet();
-                                                localStorage.clear();
-                                                document.cookie = "wallet_address=; Max-Age=0; path=/";
-                                                window.location.href = "/";
-                                            }
-                                        }}
-                                        className="w-full px-4 py-3 text-left text-sm text-yellow-500 hover:bg-white/5 transition-colors flex items-center gap-2 border-t border-white/5 cursor-pointer mt-1"
-                                    >
-                                        <span className="material-icons-round text-sm">delete_sweep</span>
-                                        Limpar todos os dados
-                                    </button>
-                                    <button
-                                        onClick={handleDisconnect}
-                                        className="w-full px-4 py-3 text-left text-sm text-red-500 hover:bg-white/5 transition-colors flex items-center gap-2 border-t border-white/5 cursor-pointer mt-1"
-                                    >
-                                        <span className="material-icons-round text-sm">logout</span>
-                                        Desconectar
-                                    </button>
-                                </div>
-                            )}
-                        </div>
-                    )}
+                        {!connected ? (
+                            <button
+                                onClick={() => setIsConnectModalOpen(true)}
+                                className="bg-[#EAB308] hover:bg-[#CA8A04] text-black text-xs font-bold py-2.5 px-5 rounded-xl transition-all active:scale-95 shadow-lg cursor-pointer"
+                            >
+                                Conectar carteira
+                            </button>
+                        ) : (
+                            <div className="relative" ref={dropdownRef}>
+                                <button
+                                    onClick={() => setIsWalletDropdownOpen(!isWalletDropdownOpen)}
+                                    className="w-48 bg-zinc-900 border border-white/10 px-4 py-2 rounded-xl flex items-center justify-between gap-2 hover:bg-zinc-800 transition-colors cursor-pointer"
+                                >
+                                    <span className="text-xs font-mono text-zinc-400 font-medium whitespace-nowrap">
+                                        {formatAddress(publicKey || "")}
+                                    </span>
+                                    <span className="material-icons-round text-sm text-zinc-500">expand_more</span>
+                                </button>
+
+                                {isWalletDropdownOpen && (
+                                    <div className="absolute right-0 mt-2 w-48 bg-zinc-900 border border-white/10 rounded-xl shadow-2xl overflow-hidden z-50 animate-in fade-in zoom-in-95 duration-200">
+                                        <button
+                                            onClick={handleCopyAddress}
+                                            className="w-full px-4 py-3 text-left text-sm hover:bg-white/5 transition-colors flex items-center gap-2 cursor-pointer text-zinc-300"
+                                        >
+                                            <span className="material-icons-round text-sm">content_copy</span>
+                                            Copiar Endereço
+                                        </button>
+                                        <button
+                                            onClick={async () => {
+                                                if (confirm("Deseja realmente apagar todos os contratos e dados de teste?")) {
+                                                    if (connected) await disconnectWallet();
+                                                    localStorage.clear();
+                                                    document.cookie = "wallet_address=; Max-Age=0; path=/";
+                                                    window.location.href = "/";
+                                                }
+                                            }}
+                                            className="w-full px-4 py-3 text-left text-sm text-yellow-500 hover:bg-white/5 transition-colors flex items-center gap-2 border-t border-white/5 cursor-pointer mt-1"
+                                        >
+                                            <span className="material-icons-round text-sm">delete_sweep</span>
+                                            Limpar todos os dados
+                                        </button>
+                                        <button
+                                            onClick={handleDisconnect}
+                                            className="w-full px-4 py-3 text-left text-sm text-red-500 hover:bg-white/5 transition-colors flex items-center gap-2 border-t border-white/5 cursor-pointer mt-1"
+                                        >
+                                            <span className="material-icons-round text-sm">logout</span>
+                                            Desconectar
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                    </div>
                 </div>
             </header>
 

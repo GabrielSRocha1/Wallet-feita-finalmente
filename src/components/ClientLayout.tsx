@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import SplashScreen from "./SplashScreen";
 import { WalletProvider } from "@/contexts/WalletContext";
+import { NetworkProvider } from "@/contexts/NetworkContext";
 
 export default function ClientLayout({
     children,
@@ -26,16 +27,18 @@ export default function ClientLayout({
 
     return (
         <WalletProvider>
-            <div className="bg-zinc-950 min-h-screen selection:bg-[#EAB308]/30">
-                {showSplash && <SplashScreen onFinish={handleSplashFinish} />}
+            <NetworkProvider>
+                <div className="bg-zinc-950 min-h-screen selection:bg-[#EAB308]/30">
+                    {showSplash && <SplashScreen onFinish={handleSplashFinish} />}
 
-                {/* Só renderiza o conteúdo principal quando o splash terminar para evitar saltos de layout */}
-                {!showSplash && (
-                    <div className="max-w-screen-md mx-auto bg-black min-h-screen relative shadow-2xl animate-in fade-in duration-700">
-                        {children}
-                    </div>
-                )}
-            </div>
+                    {/* Só renderiza o conteúdo principal quando o splash terminar para evitar saltos de layout */}
+                    {!showSplash && (
+                        <div className="max-w-screen-md mx-auto bg-black min-h-screen relative shadow-2xl animate-in fade-in duration-700">
+                            {children}
+                        </div>
+                    )}
+                </div>
+            </NetworkProvider>
         </WalletProvider>
     );
 }

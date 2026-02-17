@@ -93,7 +93,7 @@ const EditRecipientModal: React.FC<EditRecipientModalProps> = ({
                                 className="w-full bg-[#4d4d4d] border-none rounded-xl py-3.5 px-4 text-[#d1d1d6] text-[16px] focus:ring-1 focus:ring-[#f3d88a] outline-none placeholder-gray-400"
                                 type="text"
                                 name="contractTitle"
-                                autoComplete="off"
+                                autoComplete="one-time-code"
                                 value={contractTitle}
                                 onChange={(e) => setContractTitle(e.target.value)}
                             />
@@ -116,9 +116,10 @@ const EditRecipientModal: React.FC<EditRecipientModalProps> = ({
                             </div>
                             <input
                                 className="w-full bg-[#4d4d4d] border-none rounded-xl py-3.5 pl-11 pr-14 text-white text-[16px] font-medium focus:ring-1 focus:ring-[#f3d88a] outline-none"
-                                type="text"
-                                name="amount"
-                                autoComplete="off"
+                                type="number"
+                                step="any"
+                                name="recipientAmount"
+                                autoComplete="new-password"
                                 value={amount}
                                 onChange={(e) => setAmount(e.target.value)}
                             />
@@ -138,7 +139,7 @@ const EditRecipientModal: React.FC<EditRecipientModalProps> = ({
                                 className="w-full bg-[#4d4d4d] border-none rounded-xl py-3.5 pl-4 pr-12 text-[#d1d1d6] text-[15px] focus:ring-1 focus:ring-[#f3d88a] outline-none truncate"
                                 type="text"
                                 name="walletAddress"
-                                autoComplete="off"
+                                autoComplete="one-time-code"
                                 value={walletAddress}
                                 onChange={(e) => setWalletAddress(e.target.value)}
                             />

@@ -81,7 +81,7 @@ const AddRecipientModal: React.FC<AddRecipientModalProps> = ({
                             placeholder="ex. Vesting João Automóveis"
                             type="text"
                             name="contractTitle"
-                            autoComplete="off"
+                            autoComplete="one-time-code"
                             value={contractTitle}
                             onChange={(e) => setContractTitle(e.target.value)}
                         />
@@ -100,9 +100,10 @@ const AddRecipientModal: React.FC<AddRecipientModalProps> = ({
                             <input
                                 className="w-full bg-[#2C2C2E] border border-white/10 rounded-xl py-3 pl-12 pr-20 text-white placeholder-gray-500 focus:ring-1 focus:ring-[#FDE68A] outline-none transition-all"
                                 placeholder="0.00"
-                                type="text"
-                                name="amount"
-                                autoComplete="off"
+                                type="number"
+                                step="any"
+                                name="recipientAmount"
+                                autoComplete="new-password"
                                 value={amount}
                                 onChange={(e) => setAmount(e.target.value)}
                             />
@@ -123,7 +124,7 @@ const AddRecipientModal: React.FC<AddRecipientModalProps> = ({
                                 placeholder="Chave Pública"
                                 type="text"
                                 name="walletAddress"
-                                autoComplete="off"
+                                autoComplete="one-time-code"
                                 value={walletAddress}
                                 onChange={(e) => setWalletAddress(e.target.value)}
                             />
