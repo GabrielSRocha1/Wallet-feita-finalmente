@@ -184,6 +184,8 @@ export default function ConfigurationPage() {
                             <input
                                 className="col-span-9 bg-transparent border-none focus:ring-0 p-4 text-white placeholder-gray-500 outline-none"
                                 type="text"
+                                name="vestingDuration"
+                                autoComplete="off"
                                 placeholder="0"
                                 value={vestingDuration}
                                 onChange={(e) => setVestingDuration(e.target.value)}
@@ -317,6 +319,8 @@ export default function ConfigurationPage() {
                                 <input
                                     className="bg-transparent border-none p-0 focus:ring-0 w-full text-white outline-none"
                                     placeholder="0"
+                                    name="cliffAmount"
+                                    autoComplete="off"
                                     value={cliffAmount}
                                     onChange={(e) => setCliffAmount(e.target.value)}
                                 />
@@ -329,6 +333,8 @@ export default function ConfigurationPage() {
                                 <input
                                     className="bg-transparent border-none p-0 focus:ring-0 w-full text-white outline-none"
                                     placeholder="0"
+                                    name="cliffAmount"
+                                    autoComplete="off"
                                     value={cliffAmount}
                                     onChange={(e) => setCliffAmount(e.target.value)}
                                 />

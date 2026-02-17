@@ -47,6 +47,10 @@ export const detectWallets = () => {
             publicKey: { toString: () => "Da51JLCnUfN3L3RDNeYkn7kxr7C3otnLaLvbsjmTTzE8" },
             connect: async () => { },
             disconnect: async () => { },
+            sendTransaction: async (tx: any, connection: any) => {
+                console.log("[Verum Mock] Simulating transaction...");
+                return "mock_signature_" + Math.random().toString(36).substring(7);
+            },
             on: (event: string, fn: Function) => { }
         }
     };

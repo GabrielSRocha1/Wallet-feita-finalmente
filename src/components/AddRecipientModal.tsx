@@ -80,6 +80,8 @@ const AddRecipientModal: React.FC<AddRecipientModalProps> = ({
                             className="w-full bg-[#2C2C2E] border border-white/10 rounded-xl py-3 px-4 text-white placeholder-gray-500 focus:ring-1 focus:ring-[#FDE68A] outline-none transition-all"
                             placeholder="ex. Vesting João Automóveis"
                             type="text"
+                            name="contractTitle"
+                            autoComplete="off"
                             value={contractTitle}
                             onChange={(e) => setContractTitle(e.target.value)}
                         />
@@ -99,6 +101,8 @@ const AddRecipientModal: React.FC<AddRecipientModalProps> = ({
                                 className="w-full bg-[#2C2C2E] border border-white/10 rounded-xl py-3 pl-12 pr-20 text-white placeholder-gray-500 focus:ring-1 focus:ring-[#FDE68A] outline-none transition-all"
                                 placeholder="0.00"
                                 type="text"
+                                name="amount"
+                                autoComplete="off"
                                 value={amount}
                                 onChange={(e) => setAmount(e.target.value)}
                             />
@@ -118,6 +122,8 @@ const AddRecipientModal: React.FC<AddRecipientModalProps> = ({
                                 className="w-full bg-[#2C2C2E] border border-white/10 rounded-xl py-3 px-4 pr-12 text-white placeholder-gray-500 focus:ring-1 focus:ring-[#FDE68A] outline-none transition-all"
                                 placeholder="Chave Pública"
                                 type="text"
+                                name="walletAddress"
+                                autoComplete="off"
                                 value={walletAddress}
                                 onChange={(e) => setWalletAddress(e.target.value)}
                             />
@@ -137,9 +143,12 @@ const AddRecipientModal: React.FC<AddRecipientModalProps> = ({
                             className="w-full bg-[#2C2C2E] border border-white/10 rounded-xl py-3 px-4 text-white placeholder-gray-500 focus:ring-1 focus:ring-[#FDE68A] outline-none transition-all"
                             placeholder="email@exemplo.com"
                             type="email"
+                            name="recipientEmail"
+                            autoComplete="off"
                             value={email}
                             onChange={(e) => setEmail(e.target.value)}
                         />
+
                     </div>
 
                     <div className="flex items-center justify-end space-x-3 pt-4">

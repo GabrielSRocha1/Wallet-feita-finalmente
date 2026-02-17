@@ -79,8 +79,14 @@ export default function ReviewPage() {
                 throw new Error("Carteira não suporta envio de transações.");
             }
 
-            // Wait for confirmation
-            await connection.confirmTransaction(signature, 'confirmed');
+            // Wait for confirmation (Skip if it's a mock signature)
+            if (signature && !signature.startsWith('mock_')) {
+                await connection.confirmTransaction(signature, 'confirmed');
+            } else {
+                console.log("[Revisar] Mock signature detected, skipping confirmation.");
+                // Artificial delay to simulate confirmation
+                await new Promise(r => setTimeout(r, 1000));
+            }
 
             // Success Message
             alert("Contrato criado com sucesso!");

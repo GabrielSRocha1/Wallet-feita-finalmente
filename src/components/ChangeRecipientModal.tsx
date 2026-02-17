@@ -51,6 +51,8 @@ export default function ChangeRecipientModal({ isOpen, onClose, onConfirm, curre
                             </label>
                             <input
                                 type="text"
+                                name="newWalletAddress"
+                                autoComplete="off"
                                 value={newAddress}
                                 onChange={(e) => setNewAddress(e.target.value)}
                                 placeholder="Insira o novo endereço da carteira..."
