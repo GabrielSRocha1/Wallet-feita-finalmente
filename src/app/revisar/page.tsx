@@ -10,6 +10,7 @@ import { useNetwork } from "@/contexts/NetworkContext";
 import { isAdmin } from "@/utils/rbac";
 import NetworkSelector from "@/components/NetworkSelector";
 import { Transaction, SystemProgram, PublicKey } from '@solana/web3.js';
+import { parseVestingDate } from "@/utils/date-utils";
 
 export default function ReviewPage() {
     const router = useRouter();
@@ -152,12 +153,11 @@ export default function ReviewPage() {
             return "Indefinida";
         }
 
-        try {
-            const [datePart, timePart] = config.vestingStartDate.split(', ');
-            const [day, month, year] = datePart.split('/').map(Number);
-            const [hour, minute] = timePart.split(':').map(Number);
+        const startDate = parseVestingDate(config.vestingStartDate);
+        if (!startDate) return "Indefinida";
 
-            const date = new Date(year, month - 1, day, hour, minute);
+        try {
+            const date = new Date(startDate.getTime());
             const duration = parseInt(config.vestingDuration);
             const unit = config.selectedTimeUnit?.toLowerCase() || "";
 
@@ -254,12 +254,12 @@ export default function ReviewPage() {
                                     {/* Vesting Start Date Label (Right/Centered on line) */}
                                     <div className="absolute -bottom-8 right-0 translate-x-1/2 text-[8px] text-zinc-500 text-center uppercase font-bold leading-tight whitespace-nowrap">
                                         {(() => {
-                                            if (!config?.vestingStartDate) return null;
-                                            // Format: dd/mm/yyyy, hh:mm -> HH:MM \n DD/MM/YYYY
-                                            try {
-                                                const [d, t] = config.vestingStartDate.split(', ');
-                                                return <>{t}<br />{d}</>;
-                                            } catch { return null; }
+                                            const startDate = parseVestingDate(config?.vestingStartDate);
+                                            if (!startDate) return null;
+
+                                            const d = startDate.toLocaleDateString('pt-BR');
+                                            const t = startDate.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+                                            return <>{t}<br />{d}</>;
                                         })()}
                                     </div>
                                 </div>
@@ -281,12 +281,9 @@ export default function ReviewPage() {
                                             {/* Date Label */}
                                             <div className="absolute -bottom-8 left-1/2 -translate-x-1/2 text-[8px] text-zinc-500 text-center uppercase font-bold leading-tight whitespace-nowrap">
                                                 {(() => {
-                                                    if (!config?.vestingStartDate) return <>{`MM/DD`}<br />{`HH:MM`}</>;
+                                                    const date = parseVestingDate(config?.vestingStartDate);
+                                                    if (!date) return <>{`MM/DD`}<br />{`HH:MM`}</>;
                                                     try {
-                                                        const [d, t] = config.vestingStartDate.split(', ');
-                                                        const [day, month, year] = d.split('/').map(Number);
-                                                        const [hour, minute] = t.split(':').map(Number);
-                                                        const date = new Date(year, month - 1, day, hour, minute);
 
                                                         const totalDuration = parseInt(config?.vestingDuration || "0");
                                                         const unit = config?.selectedTimeUnit?.toLowerCase() || "";

@@ -5,6 +5,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useNetwork } from "@/contexts/NetworkContext";
+import { parseVestingDate } from "@/utils/date-utils";
 
 export default function ConfirmationPage() {
     const router = useRouter();
@@ -27,14 +28,8 @@ export default function ConfirmationPage() {
 
                     // Helper to parse "dd/mm/yyyy, hh:mm"
                     const parseDate = (s: string) => {
-                        try {
-                            const [d, t] = s.split(', ');
-                            const [day, month, year] = d.split('/').map(Number);
-                            const [hour, minute] = t.split(':').map(Number);
-                            return new Date(year, month - 1, day, hour, minute);
-                        } catch (e) {
-                            return new Date(); // Fallback
-                        }
+                        const d = parseVestingDate(s);
+                        return d || new Date(); // Fallback
                     };
 
                     const startDate = parseDate(config.vestingStartDate || "");

@@ -9,6 +9,7 @@ import { useTokenMonitor } from "@/hooks/useTokenMonitor";
 import { useNetwork } from "@/contexts/NetworkContext";
 import ConnectWalletModal from "@/components/ConnectWalletModal";
 import NetworkSelector from "@/components/NetworkSelector";
+import { parseVestingDate } from "@/utils/date-utils";
 
 export default function HomeClientePage() {
     const router = useRouter();
@@ -49,11 +50,9 @@ export default function HomeClientePage() {
                     let c = { ...contract };
 
                     // 1. Cálculo de progresso atual
-                    if (c.vestingStartDate && c.vestingDuration && c.status !== "cancelado") {
-                        const [datePart, timePart] = c.vestingStartDate.split(', ');
-                        const [day, month, year] = datePart.split('/').map(Number);
-                        const [hour, minute] = timePart.split(':').map(Number);
-                        const start = new Date(year, month - 1, day, hour, minute).getTime();
+                    const startDate = parseVestingDate(c.vestingStartDate);
+                    if (startDate && c.vestingDuration && c.status !== "cancelado") {
+                        const start = startDate.getTime();
                         const now = Date.now();
 
                         if (now >= start) {
@@ -148,67 +147,73 @@ export default function HomeClientePage() {
 
         // Filtra contratos onde o usuário é o destinatário e pertence à rede atual
         const recipientContracts = contracts.filter((c: any) => {
-            const isRecipient = c.recipients?.some((r: any) => r.walletAddress?.toLowerCase() === publicKey.toLowerCase());
+            const isRecipient = c.recipients?.some((r: any) => r.walletAddress === publicKey);
             const contractNetwork = c.network || 'devnet';
             return isRecipient && contractNetwork === currentNetwork;
         });
 
+        console.log(`[UnifiedTokens] Encontrados ${recipientContracts.length} contratos de recebimento para depuração.`);
+
         // Adiciona/Mescla saldos de vesting
         recipientContracts.forEach((contract: any) => {
-            const sym = contract.selectedToken?.symbol || contract.tokenSymbol || "TKN";
-            const mint = contract.selectedToken?.mint || contract.mintAddress || "Unknown";
+            const sym = (contract.selectedToken?.symbol || contract.tokenSymbol || "TKN").toUpperCase();
+            const mint = contract.selectedToken?.mint || contract.mintAddress;
 
-            const recipientData = contract.recipients?.find((r: any) => r.walletAddress?.toLowerCase() === publicKey.toLowerCase());
+            const recipientData = contract.recipients?.find((r: any) => r.walletAddress === publicKey);
             if (!recipientData) return;
 
             const total = parseFloat(recipientData.amount) || 0;
 
             // --- Engine de Cáculo Dinâmico (Real-time Simulation) ---
             const calculateSimulatedUnlocked = () => {
-                if (!contract.vestingStartDate || !contract.vestingDuration) return 0;
+                const startDate = parseVestingDate(contract.vestingStartDate);
+                if (!startDate || !contract.vestingDuration) return 0;
                 try {
-                    const [datePart, timePart] = contract.vestingStartDate.split(', ');
-                    const [day, month, year] = datePart.split('/').map(Number);
-                    const [hour, minute] = timePart.split(':').map(Number);
-                    const start = new Date(year, month - 1, day, hour, minute).getTime();
+                    const start = startDate.getTime();
                     const now = Date.now();
-
                     if (now < start) return 0;
 
                     const duration = parseInt(contract.vestingDuration);
                     const unit = (contract.selectedTimeUnit || "").toLowerCase();
                     let durationMs = 0;
                     if (unit.includes('minuto')) durationMs = duration * 60 * 1000;
-                    else if (unit.includes('hora')) durationMs = duration * 60 * 60 * 1000;
-                    else if (unit.includes('dia')) durationMs = duration * 24 * 60 * 60 * 1000;
-                    else if (unit.includes('semana')) durationMs = duration * 7 * 24 * 60 * 60 * 1000;
-                    else if (unit.includes('mês') || unit.includes('mes')) durationMs = duration * 30.44 * 24 * 60 * 60 * 1000;
-                    else durationMs = duration * 365.25 * 24 * 60 * 60 * 1000;
+                    else if (unit.includes('hora')) durationMs = duration * 3600000;
+                    else if (unit.includes('dia')) durationMs = duration * 86400000;
+                    else if (unit.includes('semana')) durationMs = duration * 7 * 86400000;
+                    else if (unit.includes('mês') || unit.includes('mes')) durationMs = duration * 30.44 * 86400000;
+                    else durationMs = duration * 365.25 * 86400000;
 
-                    const elapsed = now - start;
-                    const progress = Math.min(1, elapsed / durationMs);
+                    const progress = Math.min(1, (now - start) / durationMs);
                     return total * progress;
                 } catch (e) { return 0; }
             };
 
             const unlocked = calculateSimulatedUnlocked();
             const claimed = contract.claimedAmount || 0;
-
             const claimable = Math.max(0, unlocked - claimed);
             const locked = Math.max(0, total - unlocked);
-            // --------------------------------------------------------
 
-            const existingIdx = baseTokens.findIndex(t => t.mint === mint || t.symbol === sym);
+            // Busca por MINT, SYMBOL ou NOME (Permissivo para casos onde o usuário confunde nome com ticker)
+            const existingIdx = baseTokens.findIndex(t =>
+                (mint && t.mint === mint) ||
+                (t.symbol?.toUpperCase() === sym) ||
+                (t.name?.toUpperCase() === sym)
+            );
 
             if (existingIdx > -1) {
                 baseTokens[existingIdx].claimableAmount += claimable;
                 baseTokens[existingIdx].lockedAmount += locked;
                 baseTokens[existingIdx].hasVesting = true;
+                // Se o token da carteira não tinha nome/imagem, mas o contrato tem, aproveita
+                if (!baseTokens[existingIdx].name && contract.selectedToken?.name) {
+                    baseTokens[existingIdx].name = contract.selectedToken.name;
+                }
             } else {
+                // Token em vesting não está na carteira (pode ser 0 de saldo líquido)
                 baseTokens.push({
-                    mint,
+                    mint: mint || `vesting-${sym}`,
                     amount: 0,
-                    decimals: 9,
+                    decimals: contract.selectedToken?.decimals || 9, // Tenta usar do contrato, senão default 9
                     symbol: sym,
                     name: contract.selectedToken?.name || sym,
                     image: contract.selectedToken?.icon,
@@ -249,32 +254,32 @@ export default function HomeClientePage() {
     const relevantContracts = React.useMemo(() => {
         if (!publicKey) return [];
 
-        // 1. Filter by Network first
+        console.log(`[RelevantContracts] Buscando contratos para ${publicKey}. Total no Storage: ${contracts.length}`);
+
+        // Filtra pela rede selecionada
         const networkFiltered = contracts.filter((c: any) => {
             const contractNetwork = c.network || 'devnet';
             return contractNetwork === currentNetwork;
         });
 
-        console.log(`[Filter] Network: ${currentNetwork}. Total matching network: ${networkFiltered.length}`);
-
         if (isAdminUser) {
-            console.log(`[Filter] Admin mode: Returning all ${networkFiltered.length} matching network contracts.`);
+            console.log(`[RelevantContracts] Admin detectado. Mostrando ${networkFiltered.length} contratos da rede ${currentNetwork}.`);
             return networkFiltered;
         }
 
         const filtered = networkFiltered.filter((c: any) => {
-            const userKey = publicKey.toLowerCase().trim();
+            const userKey = publicKey;
 
             // Check if user is recipient
             const isRecipient = c.recipients?.some((r: any) => {
-                const rAddr = (r.walletAddress || "").toLowerCase().trim();
+                const rAddr = r.walletAddress || "";
                 const match = rAddr === userKey;
                 if (match) console.log(`[Filter] Match found for recipient ${rAddr} in contract ${c.id}`);
                 return match;
             });
 
             // Check if user is sender
-            const sAddr = (c.senderAddress || "").toLowerCase().trim();
+            const sAddr = c.senderAddress || "";
             const isSender = sAddr === userKey;
 
             if (isSender) console.log(`[Filter] Match found for sender ${sAddr} in contract ${c.id}`);
@@ -546,10 +551,10 @@ export default function HomeClientePage() {
                                         <div className="relative w-10 h-10 shrink-0 flex items-center justify-center rounded-full border-2 border-[#EAB308]/20 group-hover:border-[#EAB308]/40 transition-colors">
                                             {(() => {
                                                 const total = contract.totalAmount || 1;
-                                                const [datePart, timePart] = (contract.vestingStartDate || "01/01/2026, 00:00").split(', ');
-                                                const [day, month, year] = datePart.split('/').map(Number);
-                                                const [hour, minute] = timePart.split(':').map(Number);
-                                                const start = new Date(year, month - 1, day, hour, minute).getTime();
+                                                const startDate = parseVestingDate(contract.vestingStartDate);
+                                                if (!startDate) return <span className="text-[10px] text-zinc-600 font-bold">--%</span>;
+
+                                                const start = startDate.getTime();
                                                 const now = Date.now();
                                                 const duration = parseInt(contract.vestingDuration || "1");
                                                 const unit = (contract.selectedTimeUnit || "").toLowerCase();
@@ -570,10 +575,10 @@ export default function HomeClientePage() {
                                                 <span className="text-[#EAB308] text-[10px]">🔒</span>
                                                 {(() => {
                                                     const total = contract.totalAmount || 0;
-                                                    const [datePart, timePart] = (contract.vestingStartDate || "01/01/2026, 00:00").split(', ');
-                                                    const [day, month, year] = datePart.split('/').map(Number);
-                                                    const [hour, minute] = timePart.split(':').map(Number);
-                                                    const start = new Date(year, month - 1, day, hour, minute).getTime();
+                                                    const startDate = parseVestingDate(contract.vestingStartDate);
+                                                    if (!startDate) return "0.00";
+
+                                                    const start = startDate.getTime();
                                                     const now = Date.now();
                                                     const duration = parseInt(contract.vestingDuration || "1");
                                                     const unit = (contract.selectedTimeUnit || "").toLowerCase();
@@ -594,8 +599,18 @@ export default function HomeClientePage() {
                                     <div className="h-10 w-px bg-white/5 hidden sm:block mx-3"></div>
                                     <div className="flex flex-col text-zinc-400 leading-tight min-w-[90px]">
                                         <span className="text-[9px] text-zinc-500 font-bold uppercase tracking-tighter mb-0.5">Data Início</span>
-                                        <span className="text-zinc-300 font-medium">{contract.vestingStartDate?.split(',')[0] || "MM dd,yyyy"}</span>
-                                        <span className="text-[10px] opacity-60">{contract.vestingStartDate?.split(',')[1] || "00:00 PM"}</span>
+                                        <span className="text-zinc-300 font-medium">
+                                            {(() => {
+                                                const d = parseVestingDate(contract.vestingStartDate);
+                                                return d ? d.toLocaleDateString('pt-BR') : "MM/DD/YYYY";
+                                            })()}
+                                        </span>
+                                        <span className="text-[10px] opacity-60">
+                                            {(() => {
+                                                const d = parseVestingDate(contract.vestingStartDate);
+                                                return d ? d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : "00:00";
+                                            })()}
+                                        </span>
                                     </div>
                                     <div className="flex flex-col text-zinc-400 leading-tight flex-1 min-w-[110px]">
                                         <span className="text-[9px] text-zinc-500 font-bold uppercase tracking-tighter mb-0.5">Assunto/ID Contrato</span>
@@ -608,7 +623,7 @@ export default function HomeClientePage() {
                                     <div className="flex flex-col text-zinc-400 leading-tight flex-1 min-w-[120px]">
                                         <span className="text-[9px] text-zinc-500 font-bold uppercase tracking-tighter mb-0.5">Direção</span>
                                         {(() => {
-                                            const isSender = contract.senderAddress?.toLowerCase() === publicKey?.toLowerCase();
+                                            const isSender = contract.senderAddress === publicKey;
                                             const recipientAddr = contract.recipients?.[0]?.walletAddress || "";
 
                                             if (isSender) {

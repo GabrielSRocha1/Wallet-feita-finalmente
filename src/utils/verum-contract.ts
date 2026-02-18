@@ -33,15 +33,27 @@ export const getUserVestingInfo = async (publicKey: string, network: 'mainnet' |
         // Por enquanto, apenas busca info da conta do usuário
 
         // @ts-ignore - Supressão para typings do gill
-        const accountInfo = await currentRpc.getAccountInfo(publicKey).send();
+        const accountInfoResponse = await currentRpc.getAccountInfo(publicKey).send();
+        const accountInfo = accountInfoResponse?.value;
 
-        // Implementar validação se a conta pertence ao programa correto
-        if (accountInfo?.value?.owner && accountInfo.value.owner !== programId) {
-            console.warn(`[Network Isolation] Conta ${publicKey} não pertence ao programa Verum (${programId}) na rede ${network}`);
+        // VERIFICAÇÃO DE SEGURANÇA: Conta Vazia (Zombie Account)
+        if (!accountInfo) {
+            console.warn(`[Vesting] Conta ${publicKey} não encontrada no ledger.`);
+            return null;
         }
 
-        // Parse dos dados do programa (ajuste conforme seu IDL)
-        // const vestingData = parseVestingData(accountInfo.data);
+        if (accountInfo.data.length === 0 || (Array.isArray(accountInfo.data) && accountInfo.data[0] === "")) {
+            console.warn(`[Vesting] Conta ${publicKey} é uma System Account sem dados de programa.`);
+            return null;
+        }
+
+        // Validação se a conta pertence ao programa correto
+        if (accountInfo.owner !== programId) {
+            console.error(`[Security Violation] Conta ${publicKey} pertence ao owner ${accountInfo.owner}, esperado ${programId}`);
+            return null;
+        }
+
+        // Parse dos dados do programa...
 
         return {
             totalLocked: 0,

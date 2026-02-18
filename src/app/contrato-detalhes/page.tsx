@@ -10,6 +10,7 @@ import { isAdmin, getWalletCookie } from "@/utils/rbac";
 import { useWallet } from "@/contexts/WalletContext";
 import { useNetwork } from "@/contexts/NetworkContext";
 import NetworkSelector from "@/components/NetworkSelector";
+import { parseVestingDate } from "@/utils/date-utils";
 
 export default function VestingContractDetailsPage() {
     const router = useRouter();
@@ -26,6 +27,41 @@ export default function VestingContractDetailsPage() {
     const [loading, setLoading] = useState(true);
     const [isClaiming, setIsClaiming] = useState(false);
 
+    // --- Dynamic Engine for Details ---
+    const getDynamicVesting = () => {
+        const startDate = parseVestingDate(contractData?.vestingStartDate);
+        if (!startDate || !contractData?.vestingDuration) {
+            return { unlocked: 0, progress: 0, locked: contractData?.totalAmount || 0 };
+        }
+        try {
+            const start = startDate.getTime();
+            const now = Date.now();
+
+            if (now < start) return { unlocked: 0, progress: 0, locked: contractData.totalAmount };
+
+            const total = contractData.totalAmount || 0;
+            const duration = parseInt(contractData.vestingDuration);
+            const unit = (contractData.selectedTimeUnit || "").toLowerCase();
+            let durationMs = 3600000;
+            if (unit.includes('minuto')) durationMs = duration * 60 * 1000;
+            else if (unit.includes('hora')) durationMs = duration * 3600000;
+            else if (unit.includes('dia')) durationMs = duration * 86400000;
+            else if (unit.includes('semana')) durationMs = duration * 7 * 86400000;
+            else if (unit.includes('mês') || unit.includes('mes')) durationMs = duration * 30.44 * 86400000;
+            else durationMs = duration * 365.25 * 86400000;
+
+            const progress = Math.min(1, (now - start) / durationMs);
+            const unlocked = total * progress;
+            return {
+                unlocked,
+                progress: Math.round(progress * 100),
+                locked: Math.max(0, total - unlocked)
+            };
+        } catch (e) {
+            return { unlocked: 0, progress: 0, locked: contractData?.totalAmount || 0 };
+        }
+    };
+
     useEffect(() => {
         const interval = setInterval(() => {
             if (!contractData) return;
@@ -35,20 +71,11 @@ export default function VestingContractDetailsPage() {
             let hasChanges = false;
             let updates: any = {};
 
-            // 0. Check for Scheduled -> In Progress
             if (contractData.status === "agendado") {
-                try {
-                    const [datePart, timePart] = contractData.vestingStartDate.split(', ');
-                    const [day, month, year] = datePart.split('/').map(Number);
-                    const [hour, minute] = timePart.split(':').map(Number);
-                    const start = new Date(year, month - 1, day, hour, minute).getTime();
-
-                    if (Date.now() >= start) {
-                        updates.status = "em-andamento";
-                        hasChanges = true;
-                    }
-                } catch (e) {
-                    console.error("Error checking schedule start:", e);
+                const startDate = parseVestingDate(contractData.vestingStartDate);
+                if (startDate && Date.now() >= startDate.getTime()) {
+                    updates.status = "em-andamento";
+                    hasChanges = true;
                 }
             }
 
@@ -171,42 +198,6 @@ export default function VestingContractDetailsPage() {
         }
     };
 
-    // --- Dynamic Engine for Details ---
-    const getDynamicVesting = () => {
-        if (!contractData?.vestingStartDate || !contractData?.vestingDuration) {
-            return { unlocked: 0, progress: 0, locked: contractData?.totalAmount || 0 };
-        }
-        try {
-            const [datePart, timePart] = contractData.vestingStartDate.split(', ');
-            const [day, month, year] = datePart.split('/').map(Number);
-            const [hour, minute] = timePart.split(':').map(Number);
-            const start = new Date(year, month - 1, day, hour, minute).getTime();
-            const now = Date.now();
-
-            if (now < start) return { unlocked: 0, progress: 0, locked: contractData.totalAmount };
-
-            const total = contractData.totalAmount || 0;
-            const duration = parseInt(contractData.vestingDuration);
-            const unit = (contractData.selectedTimeUnit || "").toLowerCase();
-            let durationMs = 3600000;
-            if (unit.includes('minuto')) durationMs = duration * 60 * 1000;
-            else if (unit.includes('hora')) durationMs = duration * 3600000;
-            else if (unit.includes('dia')) durationMs = duration * 86400000;
-            else if (unit.includes('semana')) durationMs = duration * 7 * 86400000;
-            else if (unit.includes('mês') || unit.includes('mes')) durationMs = duration * 30.44 * 86400000;
-            else durationMs = duration * 365.25 * 86400000;
-
-            const progress = Math.min(1, (now - start) / durationMs);
-            const unlocked = total * progress;
-            return {
-                unlocked,
-                progress: Math.round(progress * 100),
-                locked: Math.max(0, total - unlocked)
-            };
-        } catch (e) {
-            return { unlocked: 0, progress: 0, locked: contractData?.totalAmount || 0 };
-        }
-    };
 
     const dynamicStats = getDynamicVesting();
 
@@ -219,16 +210,13 @@ export default function VestingContractDetailsPage() {
     };
 
     const calculateEndDate = () => {
-        if (!contractData?.vestingStartDate || !contractData?.vestingDuration) {
+        const startDate = parseVestingDate(contractData.vestingStartDate);
+        if (!startDate || !contractData?.vestingDuration) {
             return "Indefinida";
         }
 
         try {
-            const [datePart, timePart] = contractData.vestingStartDate.split(', ');
-            const [day, month, year] = datePart.split('/').map(Number);
-            const [hour, minute] = timePart.split(':').map(Number);
-
-            const date = new Date(year, month - 1, day, hour, minute);
+            const date = new Date(startDate.getTime());
             const duration = parseInt(contractData.vestingDuration);
             const unit = contractData.selectedTimeUnit?.toLowerCase() || "";
 
@@ -690,12 +678,8 @@ export default function VestingContractDetailsPage() {
                                 const endStr = calculateEndDate();
 
                                 const parseDate = (s: string) => {
-                                    try {
-                                        const [d, t] = s.split(', ');
-                                        const [day, mo, yr] = d.split('/').map(Number);
-                                        const [h, m] = t.split(':').map(Number);
-                                        return new Date(yr, mo - 1, day, h, m).getTime();
-                                    } catch (e) { return Date.now(); }
+                                    const d = parseVestingDate(s);
+                                    return d ? d.getTime() : Date.now();
                                 };
 
                                 const startTs = parseDate(startStr);
@@ -710,8 +694,8 @@ export default function VestingContractDetailsPage() {
                                 return (
                                     <>
                                         <div className="text-left w-1/4">
-                                            <span className="text-white block">{startStr.split(',')[0]}</span>
-                                            <span className="opacity-50">{startStr.split(',')[1]} <span className="text-[#EAB308]">START</span></span>
+                                            <span className="text-white block">{startStr.includes(',') ? startStr.split(',')[0] : startStr}</span>
+                                            <span className="opacity-50">{startStr.includes(',') ? startStr.split(',')[1] : ""} <span className="text-[#EAB308]">START</span></span>
                                         </div>
                                         <div className="text-center w-1/4 opacity-40">
                                             <span className="block">{fmt(startTs + diff * 0.25).split(' ')[0]}</span>
@@ -726,8 +710,8 @@ export default function VestingContractDetailsPage() {
                                             <span>{fmt(startTs + diff * 0.75).split(' ')[1]}</span>
                                         </div>
                                         <div className="text-right w-1/4">
-                                            <span className="text-white block">{endStr.split(' ')[0]}</span>
-                                            <span className="opacity-50">{endStr.split(' ')[1]} <span className="text-[#EAB308]">END</span></span>
+                                            <span className="text-white block">{endStr.includes(' ') ? endStr.split(' ')[0] : endStr}</span>
+                                            <span className="opacity-50">{endStr.includes(' ') ? endStr.split(' ')[1] : ""} <span className="text-[#EAB308]">END</span></span>
                                         </div>
                                     </>
                                 );

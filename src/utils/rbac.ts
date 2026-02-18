@@ -3,26 +3,17 @@ export const ADMIN_WALLETS = [
     process.env.NEXT_PUBLIC_ADMIN_WALLET_ADDRESS || "",
 ].filter(Boolean);
 
-// Função para verificar se é admin (suporta endereços completos e abreviados)
+// Função para verificar se é admin (Sem suporte a abreviações por segurança)
 export const isAdmin = (walletAddress: string | null | undefined): boolean => {
     if (!walletAddress) return false;
 
-    const normalized = walletAddress.toString().toLowerCase().trim();
+    // Converte para string para garantir tipo correto (PublicKey vs string)
+    const address = walletAddress.toString().trim();
 
     return ADMIN_WALLETS.some(admin => {
-        const adminNormalized = admin.toLowerCase().trim();
-
-        // Comparação exata
-        if (normalized === adminNormalized) return true;
-
-        // Suporte para formatos abreviados (ex: "Da5iJ...TTzE8")
-        if (normalized.includes('...') || adminNormalized.includes('...')) {
-            const normalizedClean = normalized.replace('...', '');
-            const adminClean = adminNormalized.replace('...', '');
-            return normalized.includes(adminClean) || adminNormalized.includes(normalizedClean);
-        }
-
-        return false;
+        const adminAddress = admin.trim();
+        // Comparação EXATA: Solana addresses são case-sensitive (Base58)
+        return address === adminAddress;
     });
 };
 

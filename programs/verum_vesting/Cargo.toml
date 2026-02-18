@@ -1,0 +1,21 @@
+[package]
+name = "verum_vesting"
+version = "0.1.0"
+description = "Verum Token Vesting Program"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "verum_vesting"
+
+[features]
+no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
+cpi = ["no-entrypoint"]
+default = []
+
+[dependencies]
+anchor-lang = "0.29.0"
+anchor-spl = "0.29.0"
+solana-program = "1.17.0"

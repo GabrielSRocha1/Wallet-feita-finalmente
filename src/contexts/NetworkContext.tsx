@@ -3,6 +3,7 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode, useMemo } from 'react';
 import { Connection, clusterApiUrl } from '@solana/web3.js';
 import { createSolanaClient } from 'gill';
+import { DEFAULT_NETWORK } from '@/utils/solana-config';
 
 type Network = 'mainnet' | 'devnet';
 
@@ -17,8 +18,8 @@ interface NetworkContextType {
 const NetworkContext = createContext<NetworkContextType | undefined>(undefined);
 
 export function NetworkProvider({ children }: { children: ReactNode }) {
-    // Tenta carregar do localStorage no servidor/hidratação se possível, mas default 'devnet'
-    const [network, setNetworkState] = useState<Network>('devnet');
+    // Usa DEFAULT_NETWORK como valor inicial (Hierarchy: Env > Default)
+    const [network, setNetworkState] = useState<Network>(DEFAULT_NETWORK);
 
     useEffect(() => {
         const savedNetwork = localStorage.getItem('verum_network') as Network;
@@ -45,6 +46,10 @@ export function NetworkProvider({ children }: { children: ReactNode }) {
     };
 
     const rpcUrl = useMemo(() => {
+        const heliusKey = process.env.NEXT_PUBLIC_HELIUS_API_KEY;
+        if (heliusKey) {
+            return `https://${network === 'mainnet' ? 'mainnet' : 'devnet'}.helius-rpc.com/?api-key=${heliusKey}`;
+        }
         return network === 'mainnet'
             ? 'https://api.mainnet-beta.solana.com'
             : 'https://api.devnet.solana.com';

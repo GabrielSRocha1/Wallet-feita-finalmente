@@ -17,6 +17,10 @@ export const PROGRAM_IDS = {
 };
 
 export const getRpcUrl = (network: 'mainnet' | 'devnet') => {
+    const heliusKey = process.env.NEXT_PUBLIC_HELIUS_API_KEY;
+    if (heliusKey) {
+        return `https://${network === 'mainnet' ? 'mainnet' : 'devnet'}.helius-rpc.com/?api-key=${heliusKey}`;
+    }
     return RPC_ENDPOINTS[network];
 };
 

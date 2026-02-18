@@ -15,6 +15,7 @@ import { useTokenMonitor } from "@/hooks/useTokenMonitor";
 import { useNetwork } from "@/contexts/NetworkContext";
 import NetworkSelector from "@/components/NetworkSelector";
 import { isAdmin } from "@/utils/rbac";
+import { parseVestingDate } from "@/utils/date-utils";
 
 export default function ConfigurationPage() {
     const router = useRouter();
@@ -222,11 +223,9 @@ export default function ConfigurationPage() {
                                 if (isNaN(duration)) return "mm, dd, yyyy, hh:mm AM";
 
                                 let baseDate = new Date();
-                                if (vestingStartDate && vestingStartDate !== "dd/mm/yyyy, hh:mm") {
-                                    const [d, t] = vestingStartDate.split(', ');
-                                    const [day, month, year] = d.split('/').map(Number);
-                                    const [hour, minute] = t.split(':').map(Number);
-                                    baseDate = new Date(year, month - 1, day, hour, minute);
+                                const parsed = parseVestingDate(vestingStartDate);
+                                if (parsed) {
+                                    baseDate = parsed;
                                 }
 
                                 const unit = selectedTimeUnit.toLowerCase();
