@@ -1,20 +1,42 @@
 import { createSolanaClient, devnet, mainnet } from 'gill';
 
 // Configuração da rede
-// Você pode definir isso no arquivo .env.local como NEXT_PUBLIC_SOLANA_NETWORK=mainnet
-const NETWORK = process.env.NEXT_PUBLIC_SOLANA_NETWORK || 'devnet';
+// Hierarchy: Environment Variable > Default 'devnet'
+export const DEFAULT_NETWORK = (process.env.NEXT_PUBLIC_SOLANA_NETWORK || 'devnet') as 'mainnet' | 'devnet';
 
-const rpcUrl = NETWORK === 'mainnet'
-    ? 'https://api.mainnet-beta.solana.com'
-    : 'https://api.devnet.solana.com';
+export const RPC_ENDPOINTS = {
+    mainnet: 'https://api.mainnet-beta.solana.com',
+    devnet: 'https://api.devnet.solana.com'
+};
 
-// Cliente Solana (RPC + Subscriptions + Helper functions)
-export const client = createSolanaClient({ urlOrMoniker: rpcUrl });
-export const rpc = client.rpc;
-export const sendAndConfirmTransaction = client.sendAndConfirmTransaction;
+// Program IDs (Isolamento de Rede)
+// Garante que o ID correto seja usado para cada rede
+export const PROGRAM_IDS = {
+    mainnet: 'SeuProgramIdMainnetAqui111111111111111111111',
+    devnet: 'SeuProgramIdDevnetAqui111111111111111111111'
+};
 
-// Endereço do programa Verum Vesting (substitua pelo endereço real quando tiver)
-export const VERUM_PROGRAM_ID = 'SeuProgramIdAqui111111111111111111111111111';
+export const getRpcUrl = (network: 'mainnet' | 'devnet') => {
+    return RPC_ENDPOINTS[network];
+};
 
-// Exporta configurações
-export { devnet, mainnet, NETWORK };
+export const getProgramId = (network: 'mainnet' | 'devnet') => {
+    return PROGRAM_IDS[network];
+};
+
+// Cliente Estático (Fallback/Server-side) e Helpers
+// CUIDADO: O uso direto deste cliente ignora o contexto de rede selecionado pelo usuário na UI.
+// Prefira usar o hook useNetwork() para obter o cliente correto.
+export const staticClient = createSolanaClient({ urlOrMoniker: getRpcUrl(DEFAULT_NETWORK) });
+export const rpc = staticClient.rpc;
+export const sendAndConfirmTransaction = staticClient.sendAndConfirmTransaction;
+
+// PREVENÇÃO DE ERROS COMUNS
+// Valida se transações críticas estão sendo feitas na rede correta
+export const validateNetworkContext = (currentNetwork: string, expectedNetwork: string) => {
+    if (currentNetwork !== expectedNetwork) {
+        throw new Error(`CRITICAL NETWORK MISMATCH: Attempting operation on ${currentNetwork} but expected ${expectedNetwork}. Transaction aborted.`);
+    }
+};
+
+export { devnet, mainnet };

@@ -12,10 +12,15 @@ import ExitWarningModal from "@/components/ExitWarningModal";
 import { useRouter } from "next/navigation";
 import { useWallet } from "@/contexts/WalletContext";
 import { useTokenMonitor } from "@/hooks/useTokenMonitor";
+import { useNetwork } from "@/contexts/NetworkContext";
+import NetworkSelector from "@/components/NetworkSelector";
+import { isAdmin } from "@/utils/rbac";
 
 export default function ConfigurationPage() {
     const router = useRouter();
     const { publicKey } = useWallet();
+    const { network } = useNetwork();
+    const isAdminUser = isAdmin(publicKey);
     const { tokens: walletTokens, loading: loadingTokens } = useTokenMonitor(publicKey);
 
     // Filter and map real wallet tokens for the dropdown
@@ -127,12 +132,15 @@ export default function ConfigurationPage() {
                     <span className="material-icons-round text-sm text-gray-500">chevron_right</span>
                     <span className="text-sm font-medium">Configuração</span>
                 </div>
-                <button
-                    onClick={handleGoHome}
-                    className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center hover:bg-white/20 transition-colors"
-                >
-                    <span className="material-icons-round text-xl text-white">close</span>
-                </button>
+                <div className="flex items-center gap-3">
+                    {isAdminUser && <NetworkSelector />}
+                    <button
+                        onClick={handleGoHome}
+                        className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center hover:bg-white/20 transition-colors"
+                    >
+                        <span className="material-icons-round text-xl text-white">close</span>
+                    </button>
+                </div>
             </header>
 
             <main className="px-4 pt-6 space-y-8">

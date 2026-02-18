@@ -8,9 +8,12 @@ import ChangeRecipientModal from "@/components/ChangeRecipientModal";
 import CancelContractModal from "@/components/CancelContractModal";
 import { isAdmin, getWalletCookie } from "@/utils/rbac";
 import { useWallet } from "@/contexts/WalletContext";
+import { useNetwork } from "@/contexts/NetworkContext";
+import NetworkSelector from "@/components/NetworkSelector";
 
 export default function VestingContractDetailsPage() {
     const router = useRouter();
+    const { network: currentNetwork } = useNetwork();
     const { disconnectWallet } = useWallet();
     const [isWalletDropdownOpen, setIsWalletDropdownOpen] = useState(false);
     const [isChangeRecipientModalOpen, setIsChangeRecipientModalOpen] = useState(false);
@@ -84,6 +87,14 @@ export default function VestingContractDetailsPage() {
         if (selectedStr) {
             try {
                 const contract = JSON.parse(selectedStr);
+                const contractNetwork = contract.network || 'devnet';
+
+                if (contract && contractNetwork !== currentNetwork) {
+                    console.warn(`[Network] Contract network (${contractNetwork}) != Current network (${currentNetwork}). Redirecting...`);
+                    router.replace('/home-cliente');
+                    return;
+                }
+
                 if (contract) {
                     setContractData({
                         ...contract,
@@ -105,6 +116,12 @@ export default function VestingContractDetailsPage() {
         } else if (savedConfig && savedRecipients) {
             try {
                 const config = JSON.parse(savedConfig);
+                const configNetwork = config.network || 'devnet'; // Check draft network if applicable
+
+                if (configNetwork !== currentNetwork) {
+                    router.replace('/home-cliente');
+                    return;
+                }
                 const recipients = JSON.parse(savedRecipients);
 
                 if (config && recipients && Array.isArray(recipients)) {
@@ -131,7 +148,7 @@ export default function VestingContractDetailsPage() {
             }
         }
         setLoading(false);
-    }, []);
+    }, [currentNetwork, router]);
 
     // Helper functions for display
     const formatAddress = (addr: string) => {
@@ -353,62 +370,58 @@ export default function VestingContractDetailsPage() {
             <header className="sticky top-0 z-50 bg-black/80 backdrop-blur-md border-b border-zinc-800 px-4 py-3">
                 <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                        <div
-                            onClick={handleBackNavigation}
-                            className="w-8 h-8 flex items-center justify-center cursor-pointer"
-                        >
+                        <div onClick={handleBackNavigation} className="w-8 h-8 flex items-center justify-center cursor-pointer">
                             <svg className="w-6 h-6 fill-[#EAB308]" viewBox="0 0 100 100">
                                 <path d="M20 10 L50 90 L80 10 L65 10 L50 55 L35 10 Z"></path>
                             </svg>
                         </div>
                         <div className="flex items-center text-sm font-medium gap-1">
-                            <span
-                                onClick={handleBackNavigation}
-                                className="text-zinc-400 cursor-pointer hover:text-zinc-300 transition-colors"
-                            >
-                                Token bloqueado
-                            </span>
+                            <span onClick={handleBackNavigation} className="text-zinc-400 cursor-pointer hover:text-zinc-300 transition-colors">Token bloqueado</span>
                             <span className="material-symbols-outlined text-xs text-zinc-500">chevron_right</span>
                             <span>Contrato Vesting</span>
                         </div>
                     </div>
-                    <div className="relative">
-                        <button
-                            onClick={() => setIsWalletDropdownOpen(!isWalletDropdownOpen)}
-                            className="w-48 bg-zinc-900 border border-white/10 px-4 py-2 rounded-xl flex items-center justify-between gap-2 hover:bg-zinc-800 transition-colors cursor-pointer"
-                        >
-                            <span className="text-xs font-mono text-zinc-400 font-medium whitespace-nowrap">{formatAddress(walletAddress)}</span>
-                            <span className="material-icons-round text-sm text-zinc-500">expand_more</span>
-                        </button>
-                        {isWalletDropdownOpen && (
-                            <div className="absolute right-0 mt-2 w-48 bg-zinc-900 border border-white/10 rounded-xl shadow-2xl overflow-hidden z-50 animate-in fade-in zoom-in-95 duration-200">
-                                <button
-                                    onClick={() => copyToClipboard(walletAddress || "", 'Endereço da carteira')}
-                                    className="w-full flex items-center gap-2 px-4 py-3 text-sm text-zinc-300 hover:bg-white/5 transition-colors cursor-pointer border-b border-white/5"
-                                >
-                                    <span className="material-icons-round text-sm">content_copy</span>
-                                    Copiar endereço
-                                </button>
-                                <button
-                                    onClick={async () => {
-                                        try {
-                                            await disconnectWallet();
-                                            document.cookie = "wallet_address=; Max-Age=0; path=/";
-                                            localStorage.removeItem('verum_wallet_session');
-                                            setIsWalletDropdownOpen(false);
-                                            window.location.href = '/home-cliente';
-                                        } catch (e) {
-                                            console.error("Erro ao desconectar:", e);
-                                            window.location.href = '/home-cliente';
-                                        }
-                                    }}
-                                    className="w-full flex items-center gap-2 px-4 py-3 text-sm text-red-500 hover:bg-white/5 transition-colors cursor-pointer"
-                                >
-                                    <span className="material-icons-round text-sm">logout</span>
-                                    Desconectar
-                                </button>
-                            </div>
-                        )}
+
+                    <div className="flex items-center gap-3">
+                        {isAdminUser && <NetworkSelector />}
+                        <div className="relative">
+                            <button
+                                onClick={() => setIsWalletDropdownOpen(!isWalletDropdownOpen)}
+                                className="w-48 bg-zinc-900 border border-white/10 px-4 py-2 rounded-xl flex items-center justify-between gap-2 hover:bg-zinc-800 transition-colors cursor-pointer"
+                            >
+                                <span className="text-xs font-mono text-zinc-400 font-medium whitespace-nowrap">{formatAddress(walletAddress)}</span>
+                                <span className="material-icons-round text-sm text-zinc-500">expand_more</span>
+                            </button>
+                            {isWalletDropdownOpen && (
+                                <div className="absolute right-0 mt-2 w-48 bg-zinc-900 border border-white/10 rounded-xl shadow-2xl overflow-hidden z-50 animate-in fade-in zoom-in-95 duration-200">
+                                    <button
+                                        onClick={() => copyToClipboard(walletAddress || "", 'Endereço da carteira')}
+                                        className="w-full flex items-center gap-2 px-4 py-3 text-sm text-zinc-300 hover:bg-white/5 transition-colors cursor-pointer border-b border-white/5"
+                                    >
+                                        <span className="material-icons-round text-sm">content_copy</span>
+                                        Copiar endereço
+                                    </button>
+                                    <button
+                                        onClick={async () => {
+                                            try {
+                                                await disconnectWallet();
+                                                document.cookie = "wallet_address=; Max-Age=0; path=/";
+                                                localStorage.removeItem('verum_wallet_session');
+                                                setIsWalletDropdownOpen(false);
+                                                window.location.href = '/home-cliente';
+                                            } catch (e) {
+                                                console.error("Erro ao desconectar:", e);
+                                                window.location.href = '/home-cliente';
+                                            }
+                                        }}
+                                        className="w-full flex items-center gap-2 px-4 py-3 text-sm text-red-500 hover:bg-white/5 transition-colors cursor-pointer"
+                                    >
+                                        <span className="material-icons-round text-sm">logout</span>
+                                        Desconectar
+                                    </button>
+                                </div>
+                            )}
+                        </div>
                     </div>
                 </div>
             </header>

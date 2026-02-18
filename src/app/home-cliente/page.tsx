@@ -6,11 +6,13 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useWallet } from "@/contexts/WalletContext";
 import { useTokenMonitor } from "@/hooks/useTokenMonitor";
+import { useNetwork } from "@/contexts/NetworkContext";
 import ConnectWalletModal from "@/components/ConnectWalletModal";
 import NetworkSelector from "@/components/NetworkSelector";
 
 export default function HomeClientePage() {
     const router = useRouter();
+    const { network: currentNetwork } = useNetwork();
     const { connected, publicKey, isAdmin: isAdminUser, disconnectWallet } = useWallet();
     const { tokens: walletTokens, loading: loadingTokens } = useTokenMonitor(publicKey);
     const [isWalletDropdownOpen, setIsWalletDropdownOpen] = useState(false);
@@ -124,6 +126,11 @@ export default function HomeClientePage() {
             navigator.clipboard.writeText(publicKey);
             setIsWalletDropdownOpen(false);
         }
+    };
+
+    const handleViewDetails = (contract: any) => {
+        localStorage.setItem("selected_contract", JSON.stringify(contract));
+        router.push("/contrato-detalhes");
     };
 
     // Unifica saldo da carteira com saldos em vesting (para destinatários)
@@ -240,14 +247,20 @@ export default function HomeClientePage() {
     const relevantContracts = React.useMemo(() => {
         if (!publicKey) return [];
 
-        console.log(`[Filter] Connected user: ${publicKey} (IsAdmin: ${isAdminUser})`);
+        // 1. Filter by Network first
+        const networkFiltered = contracts.filter((c: any) => {
+            const contractNetwork = c.network || 'devnet';
+            return contractNetwork === currentNetwork;
+        });
+
+        console.log(`[Filter] Network: ${currentNetwork}. Total matching network: ${networkFiltered.length}`);
 
         if (isAdminUser) {
-            console.log(`[Filter] Admin mode: Returning all ${contracts.length} contracts.`);
-            return contracts;
+            console.log(`[Filter] Admin mode: Returning all ${networkFiltered.length} matching network contracts.`);
+            return networkFiltered;
         }
 
-        const filtered = contracts.filter((c: any) => {
+        const filtered = networkFiltered.filter((c: any) => {
             const userKey = publicKey.toLowerCase().trim();
 
             // Check if user is recipient
@@ -267,9 +280,9 @@ export default function HomeClientePage() {
             return isRecipient || isSender;
         });
 
-        console.log(`[Filter] Filtered ${filtered.length} contracts for user ${publicKey}`);
+        console.log(`[Filter] Filtered ${filtered.length} contracts for user ${publicKey} on ${currentNetwork}`);
         return filtered;
-    }, [contracts, publicKey, isAdminUser]);
+    }, [contracts, publicKey, isAdminUser, currentNetwork]);
 
     const filteredByStatus = relevantContracts.filter((contract: any) => {
         const query = searchQuery.toLowerCase().trim();
@@ -634,7 +647,12 @@ export default function HomeClientePage() {
                                                 {contract.status?.replace('-', ' ') || "Em Andamento"}
                                             </span>
                                         </div>
-                                        <span className="text-[#22C55E] text-[10px] font-bold hover:underline cursor-pointer uppercase tracking-tight">Ver Detalhes</span>
+                                        <span
+                                            onClick={() => handleViewDetails(contract)}
+                                            className="text-[#22C55E] text-[10px] font-bold hover:underline cursor-pointer uppercase tracking-tight"
+                                        >
+                                            Ver Detalhes
+                                        </span>
                                     </div>
                                 </div>
                             ))

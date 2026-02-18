@@ -5,16 +5,17 @@ import Link from "next/link";
 import AddressVerificationModal from "@/components/AddressVerificationModal";
 import ExitWarningModal from "@/components/ExitWarningModal";
 import { useRouter } from "next/navigation";
-import { useWallet } from "@/contexts/WalletContext"; // Custom hook
-import { Transaction, SystemProgram, LAMPORTS_PER_SOL, PublicKey, Connection, clusterApiUrl } from '@solana/web3.js';
+import { useWallet } from "@/contexts/WalletContext";
+import { useNetwork } from "@/contexts/NetworkContext";
+import { isAdmin } from "@/utils/rbac";
+import NetworkSelector from "@/components/NetworkSelector";
+import { Transaction, SystemProgram, PublicKey } from '@solana/web3.js';
 
 export default function ReviewPage() {
     const router = useRouter();
-    // Use custom wallet context instead of @solana/wallet-adapter-react
     const { publicKey, wallet } = useWallet();
-
-    // Create connection to Devnet manually since we don't have ConnectionProvider
-    const connection = new Connection(clusterApiUrl('devnet'), 'confirmed');
+    const { connection, network } = useNetwork();
+    const isAdminUser = isAdmin(publicKey);
 
     const [isVerificationModalOpen, setIsVerificationModalOpen] = useState(false);
     const [isWarningModalOpen, setIsWarningModalOpen] = useState(false);
@@ -193,12 +194,15 @@ export default function ReviewPage() {
                     <span className="material-icons-round text-sm opacity-50">chevron_right</span>
                     <span className="text-white font-bold whitespace-nowrap">Revisar</span>
                 </div>
-                <button
-                    onClick={handleGoHome}
-                    className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center hover:bg-white/20 transition-colors cursor-pointer"
-                >
-                    <span className="material-icons-round text-lg text-white">close</span>
-                </button>
+                <div className="flex items-center gap-3">
+                    {isAdminUser && <NetworkSelector />}
+                    <button
+                        onClick={handleGoHome}
+                        className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center hover:bg-white/20 transition-colors cursor-pointer"
+                    >
+                        <span className="material-icons-round text-lg text-white">close</span>
+                    </button>
+                </div>
             </header>
 
             <main className="flex-1 w-full max-w-screen-md mx-auto px-5 pt-20 pb-6">

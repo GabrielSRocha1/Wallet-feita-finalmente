@@ -4,9 +4,11 @@ import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
+import { useNetwork } from "@/contexts/NetworkContext";
 
 export default function ConfirmationPage() {
     const router = useRouter();
+    const { network: currentNetwork } = useNetwork();
     const [showToast, setShowToast] = useState(false);
 
     useEffect(() => {
@@ -56,6 +58,7 @@ export default function ConfirmationPage() {
                         id: `ct-${Date.now()}`,
                         createdAt: new Date().toISOString(),
                         status,
+                        network: currentNetwork,
                         progress: 0,
                         unlockedAmount: 0,
                         totalAmount: recipients.reduce((sum: number, r: any) => sum + (parseFloat(r.amount) || 0), 0)

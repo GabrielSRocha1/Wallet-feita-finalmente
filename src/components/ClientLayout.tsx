@@ -26,8 +26,8 @@ export default function ClientLayout({
     }, []);
 
     return (
-        <WalletProvider>
-            <NetworkProvider>
+        <NetworkProvider>
+            <WalletProvider>
                 <div className="bg-zinc-950 min-h-screen selection:bg-[#EAB308]/30">
                     {showSplash && <SplashScreen onFinish={handleSplashFinish} />}
 
@@ -38,7 +38,7 @@ export default function ClientLayout({
                         </div>
                     )}
                 </div>
-            </NetworkProvider>
-        </WalletProvider>
+            </WalletProvider>
+        </NetworkProvider>
     );
 }

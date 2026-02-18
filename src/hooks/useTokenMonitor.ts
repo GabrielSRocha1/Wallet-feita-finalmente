@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { Connection, PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
 
 interface TokenData {
@@ -19,17 +19,18 @@ interface UseTokenMonitorReturn {
     refresh: () => Promise<void>;
 }
 
-import { NETWORK } from '@/utils/solana-config';
+import { useNetwork } from '@/contexts/NetworkContext';
 
 const TOKEN_PROGRAM_ID = new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
 const HELIUS_API_KEY = process.env.NEXT_PUBLIC_HELIUS_API_KEY;
 
-// Dynamic endpoint based on global network
-const RPC_ENDPOINT = HELIUS_API_KEY
-    ? `https://${NETWORK === 'mainnet' ? 'mainnet' : 'devnet'}.helius-rpc.com/?api-key=${HELIUS_API_KEY}`
-    : NETWORK === 'mainnet'
-        ? 'https://api.mainnet-beta.solana.com'
-        : 'https://api.devnet.solana.com';
+const getRpcEndpoint = (network: string) => {
+    return HELIUS_API_KEY
+        ? `https://${network === 'mainnet' ? 'mainnet' : 'devnet'}.helius-rpc.com/?api-key=${HELIUS_API_KEY}`
+        : network === 'mainnet'
+            ? 'https://api.mainnet-beta.solana.com'
+            : 'https://api.devnet.solana.com';
+};
 
 const truncateMint = (mint?: string) => {
     if (!mint || mint.length < 8) return mint || 'Unknown';
@@ -37,10 +38,18 @@ const truncateMint = (mint?: string) => {
 };
 
 export const useTokenMonitor = (walletAddress: string | null): UseTokenMonitorReturn => {
+    const { network } = useNetwork();
     const [tokens, setTokens] = useState<TokenData[]>([]);
     const [loading, setLoading] = useState<boolean>(false);
     const [error, setError] = useState<string | null>(null);
     const connectionRef = useRef<Connection | null>(null);
+
+    const RPC_ENDPOINT = useMemo(() => getRpcEndpoint(network), [network]);
+
+    // Recreate connection if network changes
+    useEffect(() => {
+        connectionRef.current = new Connection(RPC_ENDPOINT, 'confirmed');
+    }, [RPC_ENDPOINT]);
 
     const fetchRealPrices = async (tokenList: TokenData[]) => {
         if (tokenList.length === 0) return tokenList;

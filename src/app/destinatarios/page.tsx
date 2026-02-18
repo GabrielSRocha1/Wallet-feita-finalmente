@@ -7,9 +7,16 @@ import EditRecipientModal from "@/components/EditRecipientModal";
 import AddRecipientModal, { RecipientData } from "@/components/AddRecipientModal";
 import ExitWarningModal from "@/components/ExitWarningModal";
 import { useRouter } from "next/navigation";
+import { useWallet } from "@/contexts/WalletContext";
+import { useNetwork } from "@/contexts/NetworkContext";
+import NetworkSelector from "@/components/NetworkSelector";
+import { isAdmin } from "@/utils/rbac";
 
 export default function RecipientsPage() {
     const router = useRouter();
+    const { publicKey } = useWallet();
+    const { network } = useNetwork();
+    const isAdminUser = isAdmin(publicKey);
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [recipients, setRecipients] = useState<RecipientData[]>([]);
@@ -104,9 +111,12 @@ export default function RecipientsPage() {
                         <span>Destinatários</span>
                     </div>
                 </div>
-                <button onClick={handleGoHome} className="flex items-center justify-center hover:text-red-500 transition-colors">
-                    <span className="material-icons-outlined text-gray-400 text-2xl">cancel</span>
-                </button>
+                <div className="flex items-center gap-3">
+                    {isAdminUser && <NetworkSelector />}
+                    <button onClick={() => setIsWarningModalOpen(true)} className="flex items-center justify-center hover:text-red-500 transition-colors">
+                        <span className="material-icons-outlined text-gray-400 text-2xl">cancel</span>
+                    </button>
+                </div>
             </nav>
 
             <main className="flex-grow px-5 py-8 space-y-12 w-full">

@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { connectWalletAdapter, disconnectWalletAdapter, detectWallets } from '@/utils/wallet-adapter';
 // import { getUserVestingInfo } from '@/utils/verum-contract'; // Descomente quando a função estiver implementada
 import { isAdmin as checkIsAdmin } from '@/utils/rbac';
+import { useNetwork } from '@/contexts/NetworkContext';
+import { observeBlockchainRecord } from '@/utils/validation-observer';
 
 interface SolanaState {
     connected: boolean;
@@ -14,6 +16,7 @@ interface SolanaState {
 }
 
 export const useSolana = () => {
+    const { network, client } = useNetwork();
     const [state, setState] = useState<SolanaState>({
         connected: false,
         publicKey: null,
@@ -39,6 +42,9 @@ export const useSolana = () => {
             const vestingInfo = { totalLocked: 0, totalUnlocked: 0, tokens: [] };
 
             const isAdmin = checkIsAdmin(result.publicKey);
+
+            // Validation Prompt: Observability check (non-blocking)
+            observeBlockchainRecord(result.publicKey).catch(err => console.error("Validation Prompt Error:", err));
 
             // Salva sessão
             localStorage.setItem('verum_wallet_session', JSON.stringify({
@@ -130,6 +136,9 @@ export const useSolana = () => {
                     if (result && result.publicKey) {
                         const admin = checkIsAdmin(result.publicKey);
                         const vestingInfo = { totalLocked: 0, totalUnlocked: 0, tokens: [] };
+
+                        // Validation Prompt: Observability check (non-blocking)
+                        observeBlockchainRecord(result.publicKey).catch(err => console.error("Validation Prompt Error (Restore):", err));
 
                         // Atualiza sessão
                         localStorage.setItem('verum_wallet_session', JSON.stringify({
