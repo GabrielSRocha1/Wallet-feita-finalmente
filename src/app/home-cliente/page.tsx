@@ -146,10 +146,12 @@ export default function HomeClientePage() {
             hasVesting: false
         }));
 
-        // Filtra contratos onde o usuário é o destinatário
-        const recipientContracts = contracts.filter((c: any) =>
-            c.recipients?.some((r: any) => r.walletAddress?.toLowerCase() === publicKey.toLowerCase())
-        );
+        // Filtra contratos onde o usuário é o destinatário e pertence à rede atual
+        const recipientContracts = contracts.filter((c: any) => {
+            const isRecipient = c.recipients?.some((r: any) => r.walletAddress?.toLowerCase() === publicKey.toLowerCase());
+            const contractNetwork = c.network || 'devnet';
+            return isRecipient && contractNetwork === currentNetwork;
+        });
 
         // Adiciona/Mescla saldos de vesting
         recipientContracts.forEach((contract: any) => {
@@ -241,7 +243,7 @@ export default function HomeClientePage() {
             // Se empatar no USD (ex: ambos $0), ordena pelo total absoluto (bloqueado + líquido)
             return (b.absoluteTotal || 0) - (a.absoluteTotal || 0);
         });
-    }, [walletTokens, contracts, connected, publicKey]);
+    }, [walletTokens, contracts, connected, publicKey, currentNetwork]);
 
     // Filter Logic - Normalized for active category selection
     const relevantContracts = React.useMemo(() => {

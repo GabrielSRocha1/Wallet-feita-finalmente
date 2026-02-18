@@ -22,6 +22,7 @@ interface UseTokenMonitorReturn {
 import { useNetwork } from '@/contexts/NetworkContext';
 
 const TOKEN_PROGRAM_ID = new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
+const TOKEN_2022_PROGRAM_ID = new PublicKey('TokenzQdBNbLqP5VEhdkThp9E7nB8N7yzoNmB9X7');
 const HELIUS_API_KEY = process.env.NEXT_PUBLIC_HELIUS_API_KEY;
 
 const getRpcEndpoint = (network: string) => {
@@ -38,18 +39,10 @@ const truncateMint = (mint?: string) => {
 };
 
 export const useTokenMonitor = (walletAddress: string | null): UseTokenMonitorReturn => {
-    const { network } = useNetwork();
+    const { network, connection } = useNetwork();
     const [tokens, setTokens] = useState<TokenData[]>([]);
     const [loading, setLoading] = useState<boolean>(false);
     const [error, setError] = useState<string | null>(null);
-    const connectionRef = useRef<Connection | null>(null);
-
-    const RPC_ENDPOINT = useMemo(() => getRpcEndpoint(network), [network]);
-
-    // Recreate connection if network changes
-    useEffect(() => {
-        connectionRef.current = new Connection(RPC_ENDPOINT, 'confirmed');
-    }, [RPC_ENDPOINT]);
 
     const fetchRealPrices = async (tokenList: TokenData[]) => {
         if (tokenList.length === 0) return tokenList;
@@ -118,17 +111,18 @@ export const useTokenMonitor = (walletAddress: string | null): UseTokenMonitorRe
     const fetchBalances = useCallback(async (isSilent = false) => {
         if (!walletAddress) return;
 
-        if (!isSilent) setLoading(true);
+        if (!isSilent) {
+            setLoading(true);
+            setTokens([]); // Clear old tokens when loading new network
+            setError(null);
+        }
         try {
-            if (!connectionRef.current) {
-                connectionRef.current = new Connection(RPC_ENDPOINT, 'confirmed');
-            }
-            const connection = connectionRef.current;
             const pubKey = new PublicKey(walletAddress);
 
-            const [solBalance, tokenAccounts] = await Promise.all([
+            const [solBalance, tokenAccounts, token2022Accounts] = await Promise.all([
                 connection.getBalance(pubKey),
-                connection.getParsedTokenAccountsByOwner(pubKey, { programId: TOKEN_PROGRAM_ID })
+                connection.getParsedTokenAccountsByOwner(pubKey, { programId: TOKEN_PROGRAM_ID }),
+                connection.getParsedTokenAccountsByOwner(pubKey, { programId: TOKEN_2022_PROGRAM_ID })
             ]);
 
             const tokenList: TokenData[] = [];
@@ -158,6 +152,20 @@ export const useTokenMonitor = (walletAddress: string | null): UseTokenMonitorRe
                 }
             });
 
+            // Add Token-2022
+            token2022Accounts.value.forEach((account) => {
+                const info = account.account.data.parsed.info;
+                if (info.tokenAmount.uiAmount > 0) {
+                    tokenList.push({
+                        mint: info.mint,
+                        amount: Number(info.tokenAmount.amount),
+                        decimals: info.tokenAmount.decimals,
+                        symbol: truncateMint(info.mint),
+                        price: null,
+                    });
+                }
+            });
+
             const enriched = await fetchRealPrices(tokenList);
             enriched.sort((a, b) => (b.valueUsd || 0) - (a.valueUsd || 0));
 
@@ -169,13 +177,12 @@ export const useTokenMonitor = (walletAddress: string | null): UseTokenMonitorRe
         } finally {
             if (!isSilent) setLoading(false);
         }
-    }, [walletAddress]);
+    }, [walletAddress, network, connection]);
 
     useEffect(() => {
         if (!walletAddress) return;
         fetchBalances();
 
-        const connection = new Connection(RPC_ENDPOINT, 'confirmed');
         const pubKey = new PublicKey(walletAddress);
 
         // Instant update on SOL change
@@ -186,7 +193,7 @@ export const useTokenMonitor = (walletAddress: string | null): UseTokenMonitorRe
             connection.removeAccountChangeListener(subId);
             clearInterval(interval);
         };
-    }, [walletAddress, fetchBalances]);
+    }, [walletAddress, fetchBalances, connection]);
 
     return { tokens, loading, error, refresh: () => fetchBalances() };
 };
