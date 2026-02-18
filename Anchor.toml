@@ -8,7 +8,7 @@ skip-lint = false
 verum_vesting = "Vesting111111111111111111111111111111111111"
 
 [programs.devnet]
-verum_vesting = "Vesting111111111111111111111111111111111111"
+verum_vesting = "HMqYLNw1ABgVeFcP2PmwDv6bibcm9y318aTo2g25xQMm"
 
 [registry]
 url = "https://api.apr.dev"

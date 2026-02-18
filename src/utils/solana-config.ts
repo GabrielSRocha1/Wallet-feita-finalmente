@@ -13,7 +13,7 @@ export const RPC_ENDPOINTS = {
 // Garante que o ID correto seja usado para cada rede
 export const PROGRAM_IDS = {
     mainnet: 'SeuProgramIdMainnetAqui111111111111111111111',
-    devnet: 'SeuProgramIdDevnetAqui111111111111111111111'
+    devnet: 'HMqYLNw1ABgVeFcP2PmwDv6bibcm9y318aTo2g25xQMm'
 };
 
 export const getRpcUrl = (network: 'mainnet' | 'devnet') => {

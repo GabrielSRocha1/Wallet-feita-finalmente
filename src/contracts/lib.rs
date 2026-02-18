@@ -1,7 +1,9 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Mint, Token, TokenAccount, Transfer};
 
-declare_id!("HMqYLNw1ABgVeFcP2PmwDv6bibcm9y318aTo2g25xQMm"); // Substituir pelo Program ID real após deploy
+// ⚠️ ATENÇÃO: Se o deploy falhar por "address mismatch", o Playground vai pedir para atualizar.
+// Se isso acontecer, copie o NOVO ID que ele gerar e coloque aqui.
+declare_id!("HMqYLNw1ABgVeFcP2PmwDv6bibcm9y318aTo2g25xQMm");
 
 #[program]
 pub mod verum_vesting {
@@ -181,8 +183,9 @@ pub struct CreateVesting<'info> {
 
 #[derive(Accounts)]
 pub struct Release<'info> {
+    /// CHECK: Safe because we only transfer TO this account (AUTOMAÇÃO HABILITADA)
     #[account(mut)]
-    pub beneficiary: Signer<'info>,
+    pub beneficiary: UncheckedAccount<'info>, // <--- MUDANÇA CRÍTICA AQUI
     #[account(mut)]
     pub beneficiary_token_account: Account<'info, TokenAccount>,
     #[account(mut, has_one = vault, has_one = beneficiary)]

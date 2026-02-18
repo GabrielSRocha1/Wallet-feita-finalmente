@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Mint, Token, TokenAccount, Transfer};
 
-declare_id!("Vesting111111111111111111111111111111111111"); // Substituir pelo Program ID real após deploy
+declare_id!("HMqYLNw1ABgVeFcP2PmwDv6bibcm9y318aTo2g25xQMm"); // Substituir pelo Program ID real após deploy
 
 #[program]
 pub mod verum_vesting {
@@ -181,8 +181,9 @@ pub struct CreateVesting<'info> {
 
 #[derive(Accounts)]
 pub struct Release<'info> {
+    /// CHECK: Safe because we only transfer TO this account
     #[account(mut)]
-    pub beneficiary: Signer<'info>,
+    pub beneficiary: UncheckedAccount<'info>,
     #[account(mut)]
     pub beneficiary_token_account: Account<'info, TokenAccount>,
     #[account(mut, has_one = vault, has_one = beneficiary)]
