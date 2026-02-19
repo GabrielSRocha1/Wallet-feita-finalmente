@@ -1,32 +1,29 @@
 
 import { Connection, Keypair, PublicKey, Transaction, TransactionInstruction } from '@solana/web3.js';
-import { Program, AnchorProvider, Wallet, Idl } from '@project-serum/anchor';
+import { Program, AnchorProvider, Wallet, Idl, BN } from '@project-serum/anchor';
 import { NextRequest, NextResponse } from 'next/server';
-import * as anchor from '@project-serum/anchor';
+import { getAssociatedTokenAddress, TOKEN_PROGRAM_ID } from '@solana/spl-token';
 
-// Nota: Você precisará copiar o IDL do contrato para este arquivo ou importá-lo
-// Como não temos o IDL buildado localmente no Windows, vou usar uma definição simplificada ou carregar do arquivo se existir.
-// Para este exemplo, vou assumir uma estrutura básica.
-
+// Use the correct Program ID from config or hardcoded if needed
+// This should match declare_id! in lib.rs
 const PROGRAM_ID = new PublicKey("HMqYLNw1ABgVeFcP2PmwDv6bibcm9y318aTo2g25xQMm");
 
 // Configuração do RPC e Wallet (Admin/Relayer)
-// Você deve configurar essas variáveis de ambiente no .env.local
 const RPC_URL = process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.devnet.solana.com';
+// RELAYER_PRIVATE_KEY is a JSON array string e.g. "[12,34,...]"
 const RELAYER_PRIVATE_KEY = process.env.RELAYER_PRIVATE_KEY;
 
-// IDL Simplificado para a instrução 'release'
+// IDL Atualizado para o novo VestingContract (simplificado com apenas o necessário)
 const IDL: Idl = {
     "version": "0.1.0",
     "name": "verum_vesting",
     "instructions": [
         {
-            "name": "release",
+            "name": "claimTokens",
             "accounts": [
-                { "name": "beneficiary", "isMut": true, "isSigner": false }, // Mudado para false!
+                { "name": "vestingContract", "isMut": true, "isSigner": false },
+                { "name": "escrowWallet", "isMut": true, "isSigner": false },
                 { "name": "beneficiaryTokenAccount", "isMut": true, "isSigner": false },
-                { "name": "vestingAccount", "isMut": true, "isSigner": false },
-                { "name": "vault", "isMut": true, "isSigner": false },
                 { "name": "tokenProgram", "isMut": false, "isSigner": false }
             ],
             "args": []
@@ -34,23 +31,32 @@ const IDL: Idl = {
     ],
     "accounts": [
         {
-            "name": "VestingAccount",
+            "name": "VestingContract",
             "type": {
                 "kind": "struct",
                 "fields": [
-                    { "name": "sender", "type": "publicKey" },
+                    { "name": "creator", "type": "publicKey" },
                     { "name": "beneficiary", "type": "publicKey" },
-                    { "name": "custodyWallet", "type": "publicKey" },
                     { "name": "mint", "type": "publicKey" },
-                    { "name": "vault", "type": "publicKey" },
-                    { "name": "startTime", "type": "i64" },
-                    { "name": "cliffTime", "type": "i64" },
-                    { "name": "duration", "type": "u64" },
                     { "name": "totalAmount", "type": "u64" },
                     { "name": "releasedAmount", "type": "u64" },
-                    { "name": "revocable", "type": "bool" },
-                    { "name": "revoked", "type": "bool" },
+                    { "name": "startTime", "type": "i64" },
+                    { "name": "endTime", "type": "i64" },
+                    { "name": "contractId", "type": "u64" },
+                    { "name": "vestingType", "type": { "defined": "VestingType" } },
                     { "name": "bump", "type": "u8" }
+                ]
+            }
+        }
+    ],
+    "types": [
+        {
+            "name": "VestingType",
+            "type": {
+                "kind": "enum",
+                "variants": [
+                    { "name": "Linear" },
+                    { "name": "Cliff" }
                 ]
             }
         }
@@ -65,23 +71,29 @@ export async function GET(request: NextRequest) {
     try {
         // Setup Connection e Wallet
         const connection = new Connection(RPC_URL, 'confirmed');
-        const relayerWallet = Keypair.fromSecretKey(
-            Uint8Array.from(JSON.parse(RELAYER_PRIVATE_KEY))
-        );
-        const wallet = new Wallet(relayerWallet);
+        let relayerKeypair: Keypair;
+        try {
+            relayerKeypair = Keypair.fromSecretKey(
+                Uint8Array.from(JSON.parse(RELAYER_PRIVATE_KEY))
+            );
+        } catch (e) {
+            return NextResponse.json({ error: 'Invalid RELAYER_PRIVATE_KEY format' }, { status: 500 });
+        }
+
+        const wallet = new Wallet(relayerKeypair);
         const provider = new AnchorProvider(connection, wallet, { commitment: 'confirmed' });
 
         // @ts-ignore
         const program = new Program(IDL, PROGRAM_ID, provider);
 
-        console.log("Iniciando processo de liberação automática...");
+        console.log("Iniciando processo de liberação automática (VestingContract)...");
 
         // 1. Buscar todas as contas de Vesting
         // @ts-ignore
-        const vestingAccounts = await program.account.vestingAccount.all();
+        const vestingAccounts = await program.account.vestingContract.all();
         console.log(`Encontradas ${vestingAccounts.length} contas de vesting.`);
 
-        const results = [];
+        const results: any[] = [];
 
         // 2. Iterar e verificar se pode liberar
         for (const account of vestingAccounts) {
@@ -91,43 +103,46 @@ export async function GET(request: NextRequest) {
 
                 const currentTime = Math.floor(Date.now() / 1000);
 
-                // Lógica de Vesting (Simplificada para JS, ideal é tentar simular ou calcular)
-                // Se já estiver revogado ou totalmente liberado, pular
-                if (data.revoked || data.releasedAmount.eq(data.totalAmount)) {
+                // Check releasedAmount vs totalAmount
+                // Using BN comparison
+                const total = new BN(data.totalAmount);
+                const released = new BN(data.releasedAmount);
+                const start = new BN(data.startTime).toNumber();
+
+                if (released.gte(total)) {
+                    // Already fully released
                     continue;
                 }
 
-                // Calcular montante vestado
-                const start = data.startTime.toNumber();
-                const duration = data.duration.toNumber();
-                const total = data.totalAmount.toNumber();
-
-                // Só processa se passou do cliff (se houver) e se passou tempo suficiente
+                // Só processa se já começou
                 if (currentTime < start) continue;
 
                 // Tentar liberar
-                // Precisamos das contas associadas (Token Account do Beneficiário)
-                // Isso pode ser complexo se não tivermos armazenado, mas podemos derivar ou buscar
-                // O beneficiaryTokenAccount é geralmente a ATA do beneficiary para o Mint do contrato
-
-                const beneficiary = data.beneficiary;
-                const mint = data.mint;
+                const beneficiary = new PublicKey(data.beneficiary);
+                const mint = new PublicKey(data.mint);
 
                 // Derivar ATA do beneficiário
-                const [beneficiaryTokenAccount] = await PublicKey.findProgramAddress(
-                    [beneficiary.toBuffer(), new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA").toBuffer(), mint.toBuffer()],
-                    new PublicKey("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL")
+                const beneficiaryTokenAccount = await getAssociatedTokenAddress(mint, beneficiary);
+
+                // Derivar Escrow PDA ["escrow", vestingContract]
+                const [escrowWallet] = PublicKey.findProgramAddressSync(
+                    [Buffer.from("escrow"), pubkey.toBuffer()],
+                    PROGRAM_ID
                 );
+
+                // Check if there is anything to release (simple check to save RPC calls)
+                // We could replicate `calculate_vested_amount` here, but for now let's just try calling the instruction
+                // if it's past start time. The contract will error if nothing to release.
+                // Optimally we'd pre-calculate to avoid error spam.
 
                 console.log(`Tentando liberar para contrato ${pubkey.toString()}...`);
 
-                const tx = await program.methods.release()
+                const tx = await program.methods.claimTokens()
                     .accounts({
-                        beneficiary: beneficiary,
+                        vestingContract: pubkey,
+                        escrowWallet: escrowWallet,
                         beneficiaryTokenAccount: beneficiaryTokenAccount,
-                        vestingAccount: pubkey,
-                        vault: data.vault,
-                        tokenProgram: new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA")
+                        tokenProgram: TOKEN_PROGRAM_ID
                     })
                     .rpc();
 
@@ -135,8 +150,17 @@ export async function GET(request: NextRequest) {
                 results.push({ account: pubkey.toString(), status: 'success', tx });
 
             } catch (err: any) {
-                console.error(`Erro ao processar conta ${account.publicKey.toString()}:`, err.message);
-                results.push({ account: account.publicKey.toString(), status: 'error', error: err.message });
+                // Determine if it's "NothingToRelease" error
+                // VestingError::NothingToRelease is usually code 6000 or custom.
+                // We'll log it as 'info' if it's just nothing to release vs an actual error.
+                const msg = err.message || JSON.stringify(err);
+                if (msg.includes("NothingToRelease") || msg.includes("0x1770")) { // 0x1770 = 6000 dec
+                    // Expected error if just checking too often
+                    // results.push({ account: account.publicKey.toString(), status: 'skipped', reason: 'NothingToRelease' });
+                } else {
+                    console.error(`Erro ao processar conta ${account.publicKey.toString()}:`, msg);
+                    results.push({ account: account.publicKey.toString(), status: 'error', error: msg });
+                }
             }
         }
 

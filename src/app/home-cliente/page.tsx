@@ -49,39 +49,61 @@ export default function HomeClientePage() {
                 const updated = allContracts.map((contract: any) => {
                     let c = { ...contract };
 
+                    // Pula se já estiver cancelado
+                    if (c.status === "cancelado" || c.revoked) {
+                        return c;
+                    }
+
                     // 1. Cálculo de progresso atual
                     const startDate = parseVestingDate(c.vestingStartDate);
-                    if (startDate && c.vestingDuration && c.status !== "cancelado") {
+                    if (startDate && c.vestingDuration) {
                         const start = startDate.getTime();
                         const now = Date.now();
 
-                        if (now >= start) {
-                            const duration = parseInt(c.vestingDuration);
-                            const unit = (c.selectedTimeUnit || "").toLowerCase();
-                            let durationMs = 3600000;
-                            if (unit.includes('minuto')) durationMs = duration * 60 * 1000;
-                            else if (unit.includes('hora')) durationMs = duration * 3600000;
-                            else if (unit.includes('dia')) durationMs = duration * 86400000;
-                            else if (unit.includes('semana')) durationMs = duration * 7 * 86400000;
-                            else if (unit.includes('mês') || unit.includes('mes')) durationMs = duration * 30.44 * 86400000;
-                            else durationMs = duration * 365.25 * 86400000;
+                        const duration = parseInt(c.vestingDuration);
+                        const unit = (c.selectedTimeUnit || "").toLowerCase();
+                        let durationMs = 3600000;
+                        if (unit.includes('minuto')) durationMs = duration * 60 * 1000;
+                        else if (unit.includes('hora')) durationMs = duration * 3600000;
+                        else if (unit.includes('dia')) durationMs = duration * 86400000;
+                        else if (unit.includes('semana')) durationMs = duration * 7 * 86400000;
+                        else if (unit.includes('mês') || unit.includes('mes')) durationMs = duration * 30.44 * 86400000;
+                        else durationMs = duration * 365.25 * 86400000;
 
-                            const progress = Math.min(1, (now - start) / durationMs);
+                        // Progress Calculation (0 to 1)
+                        const rawProgress = (now - start) / durationMs;
+                        const progress = Math.min(1, Math.max(0, rawProgress));
 
-                            // Automação: Status Completo
-                            if (progress >= 1 && c.status !== "completo") {
-                                c.status = "completo";
+                        // ----------------------------------------------------
+                        // LÓGICA RÍGIDA DE STATUS
+                        // ----------------------------------------------------
+                        let newStatus = c.status;
+
+                        if (progress >= 1) {
+                            // Periodo de vesting finalizado
+                            newStatus = "completo";
+                        } else if (progress > 0) {
+                            // Já iniciou (start_time passado) mas não acabou
+                            newStatus = "em-andamento";
+                        } else {
+                            // Ainda não iniciou (start_time futuro)
+                            newStatus = "agendado";
+                        }
+
+                        // Atualiza status se mudou (e não era cancelado)
+                        if (newStatus !== c.status) {
+                            c.status = newStatus;
+                            hasChanges = true;
+                        }
+
+                        // Automação: Auto-reivindicação
+                        if (c.autoClaim) {
+                            const total = c.totalAmount || 0;
+                            const unlocked = total * progress;
+                            // Update claimed amount silently (simulation)
+                            if (c.claimedAmount !== unlocked) {
+                                c.claimedAmount = unlocked;
                                 hasChanges = true;
-                            }
-
-                            // Automação: Auto-reivindicação
-                            if (c.autoClaim) {
-                                const total = c.totalAmount || 0;
-                                const unlocked = total * progress;
-                                if (c.claimedAmount !== unlocked) {
-                                    c.claimedAmount = unlocked;
-                                    hasChanges = true;
-                                }
                             }
                         }
                     }
@@ -294,37 +316,77 @@ export default function HomeClientePage() {
     const filteredByStatus = relevantContracts.filter((contract: any) => {
         const query = searchQuery.toLowerCase().trim();
 
-        // If searching, ignore status filter (Global Search)
+        // Global Search overrides tabs
         if (query) {
             const matchesTitle = contract.recipients?.[0]?.contractTitle?.toLowerCase().includes(query);
             const matchesWallet = contract.recipients?.some((r: any) =>
                 r.walletAddress?.toLowerCase().includes(query)
             );
-            return matchesTitle || matchesWallet;
+            // Search matches against ID too
+            const matchesId = contract.id?.toLowerCase().includes(query);
+            return matchesTitle || matchesWallet || matchesId;
         }
 
-        // Status Filter (Used when not searching)
+        // Status Filter (Tabs) - STRICT LOGIC
         if (activeFilter === "all") return true;
 
-        // Normalize status: lowercase and replace spaces/newlines with dashes
-        const rawStatus = contract.status || "em-andamento";
-        const contractStatus = rawStatus
-            .toLowerCase()
-            .replace(/[\n\r\s]+/g, '-')
-            .trim();
+        // Common Status Normalization
+        const rawStatus = (contract.status || "").toLowerCase();
 
-        // Tab mapping:
-        // 'em-andamento' tab covers: 'em-andamento', 'bloqueado' and default/empty states
-        if (activeFilter === "em-andamento") {
-            return (
-                contractStatus === "em-andamento" ||
-                contractStatus === "bloqueado" ||
-                contractStatus === "agendado" ||
-                contractStatus === ""
-            );
+        // 1. Cancelado (Strict String)
+        if (activeFilter === "cancelado") {
+            return rawStatus === "cancelado" || contract.revoked === true;
         }
 
-        return contractStatus === activeFilter;
+        // If cancelled, do not show in other tabs (unless explicitly desired, but standard is hide)
+        if (rawStatus === "cancelado" || contract.revoked === true) return false;
+
+        // 2. Completo (Strict String)
+        if (activeFilter === "completo") {
+            return rawStatus === "completo";
+        }
+
+        // If complete, do not show in pending tabs
+        if (rawStatus === "completo") return false;
+
+        // Calculate progress for strict time-based filtering (Em Andamento vs Agendado)
+        let progress = 0;
+        const startDate = parseVestingDate(contract.vestingStartDate);
+        if (startDate && contract.vestingDuration) {
+            const start = startDate.getTime();
+            const now = Date.now();
+
+            // Replicate duration logic for accuracy
+            const duration = parseInt(contract.vestingDuration);
+            const unit = (contract.selectedTimeUnit || "").toLowerCase();
+            let durationMs = 3600000;
+            if (unit.includes('minuto')) durationMs = duration * 60 * 1000;
+            else if (unit.includes('hora')) durationMs = duration * 3600000;
+            else if (unit.includes('dia')) durationMs = duration * 86400000;
+            else if (unit.includes('semana')) durationMs = duration * 7 * 86400000;
+            else if (unit.includes('mês') || unit.includes('mes')) durationMs = duration * 30.44 * 86400000;
+            else durationMs = duration * 365.25 * 86400000;
+
+            const rawP = (now - start) / durationMs;
+            progress = Math.min(1, Math.max(0, rawP));
+        }
+
+        // 3. Em Andamento (Strict: Progress > 0% AND < 100%)
+        if (activeFilter === "em-andamento") {
+            // Also include 'bloqueado' legacy status or empty, provided progress > 0
+            if (rawStatus === 'bloqueado' && progress > 0) return true;
+
+            // Explicit check: Must be started (progress > 0)
+            return progress > 0 && progress < 1;
+        }
+
+        // 4. Agendado (Strict: Progress == 0%)
+        if (activeFilter === "agendado") {
+            return progress === 0;
+        }
+
+        // Fallback
+        return rawStatus === activeFilter.replace(/-/g, ' ');
     });
 
     // Click outside handler for wallet dropdown

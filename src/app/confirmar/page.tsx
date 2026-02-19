@@ -5,11 +5,16 @@ import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useNetwork } from "@/contexts/NetworkContext";
+import { useWallet } from "@/contexts/WalletContext";
 import { parseVestingDate } from "@/utils/date-utils";
+import { Connection } from "@solana/web3.js";
+import { getRpcUrl } from "@/utils/solana-config";
+import { createVestingTransaction } from "@/utils/verum-contract";
 
 export default function ConfirmationPage() {
     const router = useRouter();
     const { network: currentNetwork } = useNetwork();
+    const { wallet, connected } = useWallet();
     const [showToast, setShowToast] = useState(false);
 
     useEffect(() => {
@@ -21,7 +26,7 @@ export default function ConfirmationPage() {
 
                 if (savedConfig && savedRecipients) {
                     const config = JSON.parse(savedConfig);
-                    const recipients = JSON.parse(savedRecipients);
+                    const recipients = JSON.parse(savedRecipients); // Start with saved recipients
 
                     // Comparison logic for status
                     const now = new Date();
@@ -44,6 +49,92 @@ export default function ConfirmationPage() {
                     const senderAddress = getCookie('wallet_address') || "";
 
                     const status = isStarted ? "em-andamento" : "agendado";
+
+                    // ---------------------------------------------------------
+                    // ON-CHAIN INTEGRATION: Create Vesting Contracts
+                    // ---------------------------------------------------------
+                    if (connected && wallet) {
+                        const connection = new Connection(getRpcUrl(currentNetwork), 'confirmed');
+
+                        // Process each recipient sequentially to ensure signatures
+                        // Note: Mapping over array with async/await requires Promise.all or for...of
+                        const processedRecipients = [];
+
+                        for (const recipient of recipients) {
+                            if (!config.selectedToken?.mint) {
+                                console.error("Token Mint not found in config");
+                                continue;
+                            }
+
+                            try {
+                                console.log(`Creating vesting for ${recipient.walletAddress}...`);
+
+                                // Calculate seconds parameters
+                                const startSeconds = Math.floor(startDate.getTime() / 1000);
+                                const durationSeconds = parseInt(config.vestingDuration) || 0; // Config usually in seconds or needs conversion based on unit?
+                                // Assuming config.vestingDuration is already normalized or we need to normalize based on unit
+                                // Let's check config.selectedTimeUnit. 
+                                // If the previous pages handled conversion, great. If not, we might need logic.
+                                // Usually 'vestingDuration' input is just a number. 'selectedTimeUnit' is 'seconds', 'minutes', 'days'.
+
+                                let durationMult = 1;
+                                switch (config.selectedTimeUnit) {
+                                    case 'minutos': durationMult = 60; break;
+                                    case 'horas': durationMult = 3600; break;
+                                    case 'dias': durationMult = 86400; break;
+                                    case 'semanas': durationMult = 604800; break;
+                                    case 'meses': durationMult = 2592000; break; // approx
+                                    case 'anos': durationMult = 31536000; break;
+                                }
+
+                                const finalDuration = (parseInt(config.vestingDuration) || 0) * durationMult;
+
+                                // Cliff check? 'selectedSchedule' might imply patterns. 
+                                // MVP: Cliff = 0 for linear/standard.
+                                const cliffSeconds = 0;
+
+                                // Amount logic. Recipient amount is usually in UI units (e.g., 10 Tokens).
+                                // Need to convert to Raw Amount based on decimals.
+                                const decimals = config.selectedToken.decimals || 9;
+                                const rawAmount = Math.floor(parseFloat(recipient.amount) * (10 ** decimals));
+
+                                const txResult = await createVestingTransaction({
+                                    wallet,
+                                    connection,
+                                    recipientAddress: recipient.walletAddress,
+                                    mintAddress: config.selectedToken.mint,
+                                    startTime: startSeconds,
+                                    durationSeconds: finalDuration,
+                                    cliffSeconds: cliffSeconds,
+                                    amount: rawAmount,
+                                    decimals: decimals,
+                                    revocable: true, // Configurable? Default true for now.
+                                    network: currentNetwork
+                                });
+
+                                if (txResult.success) {
+                                    processedRecipients.push({
+                                        ...recipient,
+                                        vestingAccount: txResult.vestingAccount,
+                                        vault: txResult.vault,
+                                        txSignature: txResult.signature
+                                    });
+                                } else {
+                                    processedRecipients.push(recipient); // Keep original if failed? Or handle error.
+                                }
+
+                            } catch (err) {
+                                console.error("Failed to create on-chain vesting:", err);
+                                // Don't crash the whole flow, but maybe mark as draft/failed?
+                                // For now, push recipient without vesting data so UI still shows it (as pending/simulated)
+                                processedRecipients.push(recipient);
+                            }
+                        }
+
+                        // Update recipients list with on-chain data
+                        recipients.length = 0;
+                        recipients.push(...processedRecipients);
+                    }
 
                     // Create a unique ID and set initial status
                     const newContract = {

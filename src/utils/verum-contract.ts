@@ -1,219 +1,377 @@
 import {
-    createTransaction,
-    signTransaction,
-    getSignatureFromTransaction
-} from 'gill';
+    Connection,
+    PublicKey,
+    Transaction,
+    SystemProgram,
+    SYSVAR_RENT_PUBKEY,
+} from '@solana/web3.js';
+import { Program, AnchorProvider, Idl, BN } from '@project-serum/anchor';
+import { getAssociatedTokenAddress, TOKEN_PROGRAM_ID } from '@solana/spl-token';
+import { PROGRAM_IDS, DEFAULT_NETWORK } from './solana-config';
 
-import { Connection, PublicKey } from '@solana/web3.js';
+// -------------------------------------------------------------------------
+// IDL DEFINITION (Based on lib.rs)
+// -------------------------------------------------------------------------
+const IDL: Idl = {
+    "version": "0.1.0",
+    "name": "verum_vesting",
+    "instructions": [
+        {
+            "name": "createVesting",
+            "accounts": [
+                { "name": "vestingContract", "isMut": true, "isSigner": false },
+                { "name": "creator", "isMut": true, "isSigner": true },
+                { "name": "beneficiary", "isMut": false, "isSigner": false },
+                { "name": "mint", "isMut": false, "isSigner": false },
+                { "name": "escrowWallet", "isMut": true, "isSigner": false },
+                { "name": "senderTokenAccount", "isMut": true, "isSigner": false },
+                { "name": "systemProgram", "isMut": false, "isSigner": false },
+                { "name": "tokenProgram", "isMut": false, "isSigner": false },
+                { "name": "rent", "isMut": false, "isSigner": false }
+            ],
+            "args": [
+                { "name": "contractId", "type": "u64" },
+                { "name": "totalAmount", "type": "u64" },
+                { "name": "startTime", "type": "i64" },
+                { "name": "endTime", "type": "i64" },
+                { "name": "vestingType", "type": { "defined": "VestingType" } }
+            ]
+        },
+        {
+            "name": "claimTokens",
+            "accounts": [
+                { "name": "vestingContract", "isMut": true, "isSigner": false },
+                { "name": "escrowWallet", "isMut": true, "isSigner": false },
+                { "name": "beneficiaryTokenAccount", "isMut": true, "isSigner": false },
+                { "name": "tokenProgram", "isMut": false, "isSigner": false }
+            ],
+            "args": []
+        }
+    ],
+    "accounts": [
+        {
+            "name": "VestingContract",
+            "type": {
+                "kind": "struct",
+                "fields": [
+                    { "name": "creator", "type": "publicKey" },
+                    { "name": "beneficiary", "type": "publicKey" },
+                    { "name": "mint", "type": "publicKey" },
+                    { "name": "totalAmount", "type": "u64" },
+                    { "name": "releasedAmount", "type": "u64" },
+                    { "name": "startTime", "type": "i64" },
+                    { "name": "endTime", "type": "i64" },
+                    { "name": "contractId", "type": "u64" },
+                    { "name": "vestingType", "type": { "defined": "VestingType" } },
+                    { "name": "bump", "type": "u8" }
+                ]
+            }
+        }
+    ],
+    "types": [
+        {
+            "name": "VestingType",
+            "type": {
+                "kind": "enum",
+                "variants": [
+                    { "name": "Linear" },
+                    { "name": "Cliff" }
+                ]
+            }
+        }
+    ]
+};
 
-import {
-    rpc as staticRpc,
-    PROGRAM_IDS,
-    sendAndConfirmTransaction as staticSend,
-    DEFAULT_NETWORK
-} from './solana-config';
+// -------------------------------------------------------------------------
+// HELPER: CREATE VESTING TRANSACTION
+// -------------------------------------------------------------------------
+export interface CreateVestingParams {
+    wallet: any; // Wallet Adapter Context
+    connection: Connection;
+    recipientAddress: string;
+    mintAddress: string;
+    startTime: number; // Unix timestamp in seconds
+    durationSeconds: number;
+    cliffSeconds: number; // Not used in Linear/Cliff simple enum but kept for signature compatibility
+    amount: number; // Raw amount
+    decimals: number;
+    revocable: boolean; // Not used in simplified struct
+    network?: 'mainnet' | 'devnet';
+}
 
-// Helper para obter o ID do programa correto
-const getProgramId = (network: 'mainnet' | 'devnet' = DEFAULT_NETWORK) => {
+export const createVestingTransaction = async (params: CreateVestingParams) => {
+    const {
+        wallet,
+        connection,
+        recipientAddress,
+        mintAddress,
+        startTime,
+        durationSeconds,
+        cliffSeconds, // Ignored for now in this strict implementation
+        amount,
+        decimals,
+        revocable,
+        network = DEFAULT_NETWORK
+    } = params;
+
+    if (!wallet.publicKey) throw new Error("Carteira não conectada.");
+
+    const programId = new PublicKey(PROGRAM_IDS[network]);
+    const sender = wallet.publicKey;
+    const recipient = new PublicKey(recipientAddress);
+    const mint = new PublicKey(mintAddress);
+
+    // 1. Generate unique Contract ID (using timestamp to ensure uniqueness per user/mint collision avoidance)
+    // In production, maybe use a counter or random, but Date.now() is decent for this MVP.
+    const contractId = new BN(Date.now());
+
+    // 2. Derive Vesting Contract PDA
+    // seeds = ["vesting", beneficiary, mint, contract_id]
+    const [vestingContractPda] = PublicKey.findProgramAddressSync(
+        [
+            Buffer.from("vesting"),
+            recipient.toBuffer(),
+            mint.toBuffer(),
+            contractId.toArrayLike(Buffer, 'le', 8)
+        ],
+        programId
+    );
+
+    // 3. Derive Escrow PDA
+    // seeds = ["escrow", vesting_contract]
+    const [escrowPda] = PublicKey.findProgramAddressSync(
+        [Buffer.from("escrow"), vestingContractPda.toBuffer()],
+        programId
+    );
+
+    // 4. Get Sender's Token Account
+    const senderTokenAccount = await getAssociatedTokenAddress(mint, sender);
+
+    // 5. Setup Provider
+    const provider = new AnchorProvider(
+        connection,
+        {
+            publicKey: sender,
+            signTransaction: wallet.signTransaction,
+            signAllTransactions: wallet.signAllTransactions,
+        } as any,
+        { commitment: 'confirmed' }
+    );
+
+    // @ts-ignore
+    const program = new Program(IDL, programId, provider);
+
+    // 6. Prepare Args
+    const amountBn = new BN(amount);
+    const startTimeBn = new BN(startTime);
+    const endTimeBn = new BN(startTime + durationSeconds);
+    const vestingType = { linear: {} }; // Default to Linear
+
+    console.log(`Creating vesting PDA: ${vestingContractPda.toString()}`);
+
+    // 6. Build Transaction
+    try {
+        const tx = await program.methods
+            .createVesting(
+                contractId,
+                amountBn,
+                startTimeBn,
+                endTimeBn,
+                vestingType
+            )
+            .accounts({
+                vestingContract: vestingContractPda,
+                creator: sender,
+                beneficiary: recipient,
+                mint: mint,
+                escrowWallet: escrowPda,
+                senderTokenAccount: senderTokenAccount,
+                systemProgram: SystemProgram.programId,
+                tokenProgram: TOKEN_PROGRAM_ID,
+                rent: SYSVAR_RENT_PUBKEY,
+            })
+            .transaction();
+
+        // 7. Sign and Send
+        tx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
+        tx.feePayer = sender;
+
+        const signedTx = await wallet.signTransaction(tx);
+        const signature = await connection.sendRawTransaction(signedTx.serialize());
+
+        await connection.confirmTransaction(signature, 'confirmed');
+        console.log("Vesting criado com sucesso! Signature:", signature);
+
+        return {
+            success: true,
+            signature,
+            vestingAccount: vestingContractPda.toString(),
+            vault: escrowPda.toString()
+        };
+
+    } catch (error: any) {
+        console.error("Erro ao criar vesting on-chain:", error);
+        throw error;
+    }
+};
+
+// -------------------------------------------------------------------------
+// HELPER: CLAIM TOKENS TRANSACTION (Manual Release)
+// -------------------------------------------------------------------------
+export const releaseTransaction = async (
+    wallet: any,
+    connection: Connection,
+    vestingAccountAddress: string,
+    network: 'mainnet' | 'devnet' = DEFAULT_NETWORK
+) => {
+    if (!wallet.publicKey) throw new Error("Carteira não conectada.");
+
+    const programId = new PublicKey(PROGRAM_IDS[network]);
+    const vestingContractPda = new PublicKey(vestingAccountAddress);
+
+    const provider = new AnchorProvider(
+        connection,
+        {
+            publicKey: wallet.publicKey,
+            signTransaction: wallet.signTransaction,
+            signAllTransactions: wallet.signAllTransactions,
+        } as any,
+        { commitment: 'confirmed' }
+    );
+    // @ts-ignore
+    const program = new Program(IDL, programId, provider);
+
+    try {
+        // 1. Fetch Account Data to get Mint/Beneficiary
+        // @ts-ignore
+        const vestingContract = await program.account.vestingContract.fetch(vestingContractPda);
+
+        const beneficiary = vestingContract.beneficiary;
+        const mint = vestingContract.mint;
+
+        // 2. Derive Escrow PDA
+        const [escrowPda] = PublicKey.findProgramAddressSync(
+            [Buffer.from("escrow"), vestingContractPda.toBuffer()],
+            programId
+        );
+
+        // 3. Get Beneficiary Token Account
+        const beneficiaryTokenAccount = await getAssociatedTokenAddress(
+            mint,
+            beneficiary
+        );
+
+        console.log(`Reivindicando de: ${vestingContractPda.toString()} para ${beneficiaryTokenAccount.toString()}`);
+
+        const transaction = new Transaction();
+
+        // 3.1 Check if ATA exists, if not, create it
+        const accountInfo = await connection.getAccountInfo(beneficiaryTokenAccount);
+        if (!accountInfo) {
+            console.log("ATA do beneficiário não existe. Adicionando instrução de criação...");
+            const { createAssociatedTokenAccountInstruction } = await import('@solana/spl-token');
+            transaction.add(
+                createAssociatedTokenAccountInstruction(
+                    wallet.publicKey, // Payer
+                    beneficiaryTokenAccount, // Associated Token Account
+                    beneficiary, // Owner
+                    mint // Mint
+                )
+            );
+        }
+
+        // 4. Execute Claim
+        const claimIx = await program.methods.claimTokens()
+            .accounts({
+                vestingContract: vestingContractPda,
+                escrowWallet: escrowPda,
+                beneficiaryTokenAccount: beneficiaryTokenAccount,
+                tokenProgram: TOKEN_PROGRAM_ID,
+            })
+            .instruction();
+
+        transaction.add(claimIx);
+
+        transaction.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
+        transaction.feePayer = wallet.publicKey;
+
+        const signedTx = await wallet.signTransaction(transaction);
+        const signature = await connection.sendRawTransaction(signedTx.serialize());
+
+        await connection.confirmTransaction(signature, 'confirmed');
+        console.log("Claim realizado com sucesso!", signature);
+
+        return { success: true, signature };
+    } catch (e: any) {
+        console.error("Erro no Release:", e);
+        throw e;
+    }
+};
+
+// -------------------------------------------------------------------------
+// HELPER: CLAIM TOKENS (User Requested Integration)
+// -------------------------------------------------------------------------
+export const claimTokens = async (
+    connection: Connection,
+    wallet: any,
+    vestingPDA: PublicKey,
+    mint: PublicKey,
+    network: 'mainnet' | 'devnet' = DEFAULT_NETWORK
+) => {
+    const programId = new PublicKey(PROGRAM_IDS[network]);
+
+    // Setup Anchor Provider
+    const provider = new AnchorProvider(
+        connection,
+        {
+            publicKey: wallet.publicKey,
+            signTransaction: wallet.signTransaction,
+            signAllTransactions: wallet.signAllTransactions,
+        } as any,
+        { commitment: 'confirmed' }
+    );
+    // @ts-ignore
+    const program = new Program(IDL, programId, provider);
+
+    // Derive Escrow PDA correctly (not ATA)
+    const [escrowWallet] = PublicKey.findProgramAddressSync(
+        [Buffer.from("escrow"), vestingPDA.toBuffer()],
+        programId
+    );
+
+    // Get Beneficiary ATA
+    const beneficiaryTokenAccount = await getAssociatedTokenAddress(
+        mint,
+        wallet.publicKey
+    );
+
+    const transaction = new Transaction();
+
+    const claimIx = await program.methods
+        .claimTokens()
+        .accounts({
+            vestingContract: vestingPDA,
+            escrowWallet: escrowWallet, // Corrected from escrowAta
+            beneficiaryTokenAccount: beneficiaryTokenAccount,
+            tokenProgram: TOKEN_PROGRAM_ID,
+        })
+        .instruction();
+
+    transaction.add(claimIx);
+
+    // Custom send to match user pattern or use wallet adapter
+    transaction.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
+    transaction.feePayer = wallet.publicKey;
+
+    const signedTx = await wallet.signTransaction(transaction);
+    const signature = await connection.sendRawTransaction(signedTx.serialize());
+
+    await connection.confirmTransaction(signature, "confirmed");
+    return signature;
+};
+
+// Re-export helpers
+export const getProgramId = (network: 'mainnet' | 'devnet' = DEFAULT_NETWORK) => {
     return PROGRAM_IDS[network];
 }
 
-// Helper para obter RPC correto (da injeção ou static fallback)
-const getRpc = (injectedRpc?: any) => {
-    return injectedRpc || staticRpc;
-}
-
-// Busca informações de vesting do usuário
-export const getUserVestingInfo = async (publicKey: string, network: 'mainnet' | 'devnet' = DEFAULT_NETWORK, injectedRpc?: any) => {
-    try {
-        const currentRpc = getRpc(injectedRpc);
-        const programId = getProgramId(network);
-
-        // TODO: Usar programId na query se necessário (ex: getProgramAccounts)
-        // Por enquanto, apenas busca info da conta do usuário
-
-        // @ts-ignore - Supressão para typings do gill
-        const accountInfoResponse = await currentRpc.getAccountInfo(publicKey).send();
-        const accountInfo = accountInfoResponse?.value;
-
-        // VERIFICAÇÃO DE SEGURANÇA: Conta Vazia (Zombie Account)
-        if (!accountInfo) {
-            console.warn(`[Vesting] Conta ${publicKey} não encontrada no ledger.`);
-            return null;
-        }
-
-        if (accountInfo.data.length === 0 || (Array.isArray(accountInfo.data) && accountInfo.data[0] === "")) {
-            console.warn(`[Vesting] Conta ${publicKey} é uma System Account sem dados de programa.`);
-            return null;
-        }
-
-        // Validação se a conta pertence ao programa correto
-        if (accountInfo.owner !== programId) {
-            console.error(`[Security Violation] Conta ${publicKey} pertence ao owner ${accountInfo.owner}, esperado ${programId}`);
-            return null;
-        }
-
-        // Parse dos dados do programa...
-
-        return {
-            totalLocked: 0,
-            totalUnlocked: 0,
-            nextUnlock: null,
-            tokens: []
-        };
-    } catch (error) {
-        console.error('Erro ao buscar vesting:', error);
-        return null;
-    }
-};
-
-// Busca saldo de tokens SPL
-export const getTokenBalance = async (tokenAccount: string, injectedRpc?: any) => {
-    try {
-        const currentRpc = getRpc(injectedRpc);
-        // @ts-ignore
-        const balance = await currentRpc.getTokenAccountBalance(tokenAccount).send();
-        return {
-            amount: balance.value.amount,
-            decimals: balance.value.decimals,
-            uiAmount: balance.value.uiAmount
-        };
-    } catch (error) {
-        console.error('Erro ao buscar saldo:', error);
-        return { amount: '0', decimals: 0, uiAmount: 0 };
-    }
-};
-
-// Cria transação de claim
-export const createClaimTransaction = async (
-    wallet: any,
-    vestingAccount: string,
-    network: 'mainnet' | 'devnet' = DEFAULT_NETWORK
-) => {
-    const programId = getProgramId(network);
-    // Implementar instrução de claim usando programId correto
-    // const instruction = createClaimInstruction(vestingAccount, wallet.publicKey, programId);
-
-    // const transaction = createTransaction({ version: 0 });
-    // transaction.add(instruction);
-
-    return null;
-};
-
-// Envia transação e realiza validação de 3 camadas
-export const executeTransactionWith3LayerValidation = async (
-    connection: Connection,
-    wallet: any,
-    transaction: any,
-    validationConfig: {
-        targetAccount: PublicKey;
-        expectedOwner?: PublicKey;
-        validatorFn: (accountInfo: any | null) => boolean;
-        commitment?: 'confirmed' | 'finalized';
-    }
-) => {
-    const { targetAccount, validatorFn, commitment = 'confirmed' } = validationConfig;
-    let signature: string | null = null;
-
-    try {
-        // CAMADA 1: SUBMISSÃO (Submission)
-        console.group('🔒 Layer 1: Transaction Submission');
-        const signed = await signTransaction([wallet], transaction);
-        signature = getSignatureFromTransaction(signed);
-
-        if (!signature) throw new Error("Falha ao obter assinatura da transação");
-
-        console.log(`Assinatura gerada: ${signature}`);
-
-        // Envio raw (usando connection diretamente para ter controle)
-        // Serializa a transação assinada
-        const rawTransaction = signed.serialize ? signed.serialize() : signed;
-
-        // Nota: Se 'signed' for do tipo do 'gill' ou 'web3.js', a serialização pode variar.
-        // Assumindo compatibilidade com sendRawTransaction do connection.
-        // Se 'signed' não for Buffer, precisamos garantir a serialização correta.
-        // O helper 'sendAndConfirmTransaction' do gill já faz isso, podemos usar ele para 1 e 2.
-        // Mas para controle total das camadas, vamos usar o sender estático ou injetado.
-
-        await staticSend(signed, { commitment }); // Cobre Camada 1 e parte da 2 (espera confirmação básica)
-        console.log('✅ Layer 1 Validada: Transação enviada ao mempool.');
-        console.groupEnd();
-
-        // CAMADA 2: CONFIRMAÇÃO (Confirmation polling)
-        console.group('⏳ Layer 2: Network Confirmation');
-        console.log(`Aguardando confirmação (${commitment})...`);
-
-        const latestBlockhash = await connection.getLatestBlockhash();
-        const confirmStrategy = {
-            blockhash: latestBlockhash.blockhash,
-            lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
-            signature: signature
-        };
-
-        const confirmation = await connection.confirmTransaction(confirmStrategy, commitment);
-
-        if (confirmation.value.err) {
-            throw new Error(`Falha na confirmação on-chain: ${JSON.stringify(confirmation.value.err)}`);
-        }
-
-        console.log('✅ Layer 2 Validada: Bloco confirmado.');
-        console.groupEnd();
-
-        // CAMADA 3: VALIDAÇÃO DE ESTADO (State Verification)
-        console.group('🔎 Layer 3: State Verification (Proof)');
-        console.log(`Verificando estado da conta: ${targetAccount.toString()}...`);
-
-        let attempts = 0;
-        const maxAttempts = 5;
-        let verified = false;
-
-        while (attempts < maxAttempts && !verified) {
-            attempts++;
-            // Delay exponencial para permitir propagação
-            await new Promise(r => setTimeout(r, 1000 * attempts));
-
-            const accountInfo = await connection.getAccountInfo(targetAccount, commitment);
-
-            if (validatorFn(accountInfo)) {
-                verified = true;
-                console.log(`✅ Layer 3 Validada: Estado verificado na tentativa ${attempts}.`);
-            } else {
-                console.warn(`Tentativa ${attempts} falhou na validação de estado. Retentando...`);
-            }
-        }
-
-        if (!verified) {
-            throw new Error("Transação confirmada, mas o estado on-chain não reflete as mudanças esperadas (Timeout de validação).");
-        }
-        console.groupEnd();
-
-        return { success: true, signature, verified: true };
-
-    } catch (error: any) {
-        console.error("❌ Falha na validação de 3 camadas:", error);
-        console.groupEnd();
-        return { success: false, error: error.message, signature };
-    }
-};
-
-// Envia transação (Legacy Wrapper)
-// injectedSendFn permite injetar a função de envio do contexto se necessário
-export const sendTransaction = async (wallet: any, transaction: any, injectedSendFn?: any) => {
-    try {
-        // Nota: Se estiver usando Wallet Adapter no frontend, a assinatura deve ser feita via wallet.signTransaction
-        // Este método assume que 'wallet' é um Signer (Keypair) com chave privada (Backend/Admin)
-
-        const signed = await signTransaction([wallet], transaction);
-        const signature = getSignatureFromTransaction(signed);
-
-        const sender = injectedSendFn || staticSend;
-
-        await sender(signed, {
-            commitment: 'confirmed'
-        });
-
-        return { success: true, signature };
-    } catch (error: any) {
-        return { success: false, error: error.message };
-    }
-};

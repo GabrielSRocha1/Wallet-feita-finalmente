@@ -11,11 +11,14 @@ import { useWallet } from "@/contexts/WalletContext";
 import { useNetwork } from "@/contexts/NetworkContext";
 import NetworkSelector from "@/components/NetworkSelector";
 import { parseVestingDate } from "@/utils/date-utils";
+import { Connection } from "@solana/web3.js";
+import { getRpcUrl } from "@/utils/solana-config";
+import { releaseTransaction } from "@/utils/verum-contract";
 
 export default function VestingContractDetailsPage() {
     const router = useRouter();
     const { network: currentNetwork } = useNetwork();
-    const { disconnectWallet } = useWallet();
+    const { disconnectWallet, wallet, connected } = useWallet();
     const [isWalletDropdownOpen, setIsWalletDropdownOpen] = useState(false);
     const [isChangeRecipientModalOpen, setIsChangeRecipientModalOpen] = useState(false);
     const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
@@ -98,7 +101,38 @@ export default function VestingContractDetailsPage() {
                 setContractData((prev: any) => prev ? { ...prev } : null);
             }
         }, 5000); // Check and refresh every 5s for precision
+        return () => clearInterval(interval);
+    }, [contractData, currentNetwork]);
 
+    // -------------------------------------------------------------------------
+    // AUTO-CHECK: Check for unclaimed tokens every 30s as requested
+    // -------------------------------------------------------------------------
+    useEffect(() => {
+        const checkUnclaimed = setInterval(() => {
+            if (!contractData) return;
+
+            const stats = getDynamicVesting();
+            const claimed = contractData.claimedAmount || 0;
+            const available = stats.unlocked - claimed;
+
+            if (available > 0.0001) { // Threshold to notify
+                console.log(`[Auto-Check] Tokens available: ${available}`);
+                setToastMessage(`Você tem ${available.toFixed(4)} ${contractData.tokenSymbol} disponíveis para saque!`);
+                setShowToast(true);
+                setTimeout(() => setShowToast(false), 5000);
+
+                // If auto-claim logic was possible without signature (backend only), we would call it here.
+                // For client-side, we notify.
+            }
+        }, 30000); // 30 seconds
+
+        return () => clearInterval(checkUnclaimed);
+    }, [contractData]); // Re-run if contractData changes (e.g. claimed amount updates)
+
+    // -------------------------------------------------------------------------
+    // LOAD CONTRACT: Initial loading from localStorage
+    // -------------------------------------------------------------------------
+    useEffect(() => {
         // 1. Try to load specific selected contract
         const selectedStr = localStorage.getItem("selected_contract");
         const savedConfig = localStorage.getItem("contract_draft");
@@ -118,8 +152,8 @@ export default function VestingContractDetailsPage() {
 
                 if (contract && contractNetwork !== currentNetwork) {
                     console.warn(`[Network] Contract network (${contractNetwork}) != Current network (${currentNetwork}). Redirecting...`);
-                    router.replace('/home-cliente');
-                    return;
+                    // router.replace('/home-cliente'); // Avoid immediate loop, maybe warn instead or handle better
+                    // return;
                 }
 
                 if (contract) {
@@ -146,8 +180,8 @@ export default function VestingContractDetailsPage() {
                 const configNetwork = config.network || 'devnet'; // Check draft network if applicable
 
                 if (configNetwork !== currentNetwork) {
-                    router.replace('/home-cliente');
-                    return;
+                    // router.replace('/home-cliente');
+                    // return;
                 }
                 const recipients = JSON.parse(savedRecipients);
 
@@ -312,17 +346,33 @@ export default function VestingContractDetailsPage() {
 
         setIsClaiming(true);
 
-        // Simula delay de rede
-        await new Promise(resolve => setTimeout(resolve, 2000));
+        try {
+            // ON-CHAIN RELEASE Check
+            if (connected && wallet && contractData.vestingAccount) {
+                const connection = new Connection(getRpcUrl(currentNetwork), 'confirmed');
+                await releaseTransaction(wallet, connection, contractData.vestingAccount, currentNetwork);
+                // Warning: releaseTransaction throws on error based on my implementation
+            } else {
+                // Fallback Simulation Delay
+                await new Promise(resolve => setTimeout(resolve, 2000));
+            }
 
-        updateContract({
-            claimedAmount: stats.unlocked
-        });
+            updateContract({
+                claimedAmount: stats.unlocked
+            });
 
-        setIsClaiming(false);
-        setToastMessage(`${availableToClaim.toFixed(4)} ${contractData.tokenSymbol} reivindicados!`);
-        setShowToast(true);
-        setTimeout(() => setShowToast(false), 2000);
+            setToastMessage(`${availableToClaim.toFixed(4)} ${contractData.tokenSymbol} reivindicados!`);
+            setShowToast(true);
+            setTimeout(() => setShowToast(false), 2000);
+
+        } catch (error) {
+            console.error("Erro ao reivindicar:", error);
+            setToastMessage("Falha ao reivindicar on-chain.");
+            setShowToast(true);
+            setTimeout(() => setShowToast(false), 2000);
+        } finally {
+            setIsClaiming(false);
+        }
     };
 
     if (loading) {
