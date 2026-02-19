@@ -18,6 +18,9 @@ pub mod verum_vesting {
         end_time: i64,
         vesting_type: VestingType,
     ) -> Result<()> {
+        require!(end_time > start_time, VestingError::InvalidDuration);
+        require!(total_amount > 0, VestingError::TotalAmountZero);
+
         let vesting_contract = &mut ctx.accounts.vesting_contract;
         
         vesting_contract.creator = ctx.accounts.creator.key();
@@ -50,7 +53,7 @@ pub mod verum_vesting {
         let vesting_contract = &mut ctx.accounts.vesting_contract;
         let current_time = Clock::get()?.unix_timestamp;
 
-        // Calcula montante vestado
+        // 1. Cálculo do montante vestado até agora
         let vested_amount = calculate_vested_amount(
             current_time,
             vesting_contract.start_time,
@@ -59,15 +62,15 @@ pub mod verum_vesting {
             &vesting_contract.vesting_type,
         );
 
-        // Calcula quanto pode sacar (Vestado - Já Liberado)
-        let releasable = vested_amount.checked_sub(vesting_contract.released_amount).unwrap();
+        // 2. Cálculo do valor disponível para saque (Vestado - Já Liberado)
+        let releasable = vested_amount.saturating_sub(vesting_contract.released_amount);
         require!(releasable > 0, VestingError::NothingToRelease);
 
-        // Atualiza estado
-        vesting_contract.released_amount += releasable;
+        // 3. Atualização do estado global do contrato
+        vesting_contract.released_amount = vesting_contract.released_amount.checked_add(releasable).unwrap();
 
-        // Assinatura do PDA (VestingContract -> Escrow)
-        // O escrow_wallet é PDA do vesting_contract, então vesting_contract assina
+        // 4. Preparação da assinatura do PDA
+        // O Vault (escrow_wallet) pertence ao Programa, com autoridade delegada ao PDA do contrato.
         let beneficiary_key = vesting_contract.beneficiary;
         let mint_key = vesting_contract.mint;
         let id_bytes = vesting_contract.contract_id.to_le_bytes();
@@ -82,13 +85,15 @@ pub mod verum_vesting {
         ];
         let signer = &[&seeds[..]];
 
+        // 5. Transferência CPI (Cross-Program Invocation)
         let cpi_accounts = Transfer {
             from: ctx.accounts.escrow_wallet.to_account_info(),
             to: ctx.accounts.beneficiary_token_account.to_account_info(),
-            authority: vesting_contract.to_account_info(), // Vesting Contract é autoridade do Escrow
+            authority: vesting_contract.to_account_info(),
         };
         let cpi_program = ctx.accounts.token_program.to_account_info();
         let cpi_ctx = CpiContext::new_with_signer(cpi_program, cpi_accounts, signer);
+        
         token::transfer(cpi_ctx, releasable)?;
 
         Ok(())
@@ -214,6 +219,10 @@ pub enum VestingError {
     NothingToRelease,
     #[msg("Não autorizado.")]
     Unauthorized,
+    #[msg("A duração do contrato é inválida (fim deve ser após o início).")]
+    InvalidDuration,
+    #[msg("O montante total deve ser maior que zero.")]
+    TotalAmountZero,
 }
 
 // -------------------------------------------------------------------------
@@ -265,7 +274,7 @@ pub struct CreateVesting<'info> {
 }
 
 #[derive(Accounts)]
-pub struct ClaimTokens<'info> {
+    pub struct ClaimTokens<'info> {
     #[account(mut)]
     pub vesting_contract: Account<'info, VestingContract>,
     
@@ -276,11 +285,16 @@ pub struct ClaimTokens<'info> {
     )]
     pub escrow_wallet: Account<'info, TokenAccount>,
 
-    #[account(mut)]
+    #[account(
+        mut,
+        constraint = beneficiary_token_account.owner == vesting_contract.beneficiary
+    )]
     pub beneficiary_token_account: Account<'info, TokenAccount>,
     
     pub token_program: Program<'info, Token>,
-    // Clock sysvar é implícita no Anchor 0.26+ via Clock::get(), mas pode ser adicionada se version <
+
+    #[account(mut)]
+    pub signer: Signer<'info>, // Quem paga a taxa da transação (pode ser o beneficiário ou o bot de automação)
 }
 
 #[derive(Accounts)]
