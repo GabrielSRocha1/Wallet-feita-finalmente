@@ -1,6 +1,7 @@
 
 import { Connection, Keypair, PublicKey, Transaction, TransactionInstruction } from '@solana/web3.js';
-import { Program, AnchorProvider, Wallet, BN, type Idl } from '@coral-xyz/anchor';
+import { Program, AnchorProvider, Wallet, BN } from '@coral-xyz/anchor';
+import type { Idl } from '@coral-xyz/anchor';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAssociatedTokenAddress, TOKEN_PROGRAM_ID } from '@solana/spl-token';
 

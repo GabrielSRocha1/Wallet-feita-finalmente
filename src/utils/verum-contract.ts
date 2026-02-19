@@ -5,7 +5,8 @@ import {
     SystemProgram,
     SYSVAR_RENT_PUBKEY,
 } from '@solana/web3.js';
-import { Program, AnchorProvider, type Idl, BN } from '@coral-xyz/anchor';
+import { Program, AnchorProvider, BN } from '@coral-xyz/anchor';
+import type { Idl } from '@coral-xyz/anchor';
 import { getAssociatedTokenAddress, TOKEN_PROGRAM_ID } from '@solana/spl-token';
 import { PROGRAM_IDS, DEFAULT_NETWORK } from './solana-config';
 
