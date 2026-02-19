@@ -11,10 +11,8 @@ const nextConfig: NextConfig = {
       },
     ],
   },
-  transpilePackages: ['@coral-xyz/anchor', '@solana/web3.js', '@solana/spl-token'],
-  experimental: {
-    serverComponentsExternalPackages: ['@coral-xyz/anchor'],
-  },
+  transpilePackages: ['@solana/web3.js', '@solana/spl-token'],
+  serverExternalPackages: ['@coral-xyz/anchor'],
 };
 
 
