@@ -5,14 +5,14 @@ import {
     SystemProgram,
     SYSVAR_RENT_PUBKEY,
 } from '@solana/web3.js';
-import { Program, AnchorProvider, Idl, BN } from '@project-serum/anchor';
+import { Program, AnchorProvider, type Idl, BN } from '@coral-xyz/anchor';
 import { getAssociatedTokenAddress, TOKEN_PROGRAM_ID } from '@solana/spl-token';
 import { PROGRAM_IDS, DEFAULT_NETWORK } from './solana-config';
 
 // -------------------------------------------------------------------------
 // IDL DEFINITION (Based on lib.rs)
 // -------------------------------------------------------------------------
-const IDL: Idl = {
+const IDL: any = {
     "version": "0.1.0",
     "name": "verum_vesting",
     "instructions": [

@@ -1,6 +1,6 @@
 
 import { Connection, Keypair, PublicKey, Transaction, TransactionInstruction } from '@solana/web3.js';
-import { Program, AnchorProvider, Wallet, Idl, BN } from '@project-serum/anchor';
+import { Program, AnchorProvider, Wallet, BN, type Idl } from '@coral-xyz/anchor';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAssociatedTokenAddress, TOKEN_PROGRAM_ID } from '@solana/spl-token';
 
@@ -13,8 +13,8 @@ const RPC_URL = process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.devnet.so
 // RELAYER_PRIVATE_KEY is a JSON array string e.g. "[12,34,...]"
 const RELAYER_PRIVATE_KEY = process.env.RELAYER_PRIVATE_KEY;
 
-// IDL Atualizado para o novo VestingContract (simplificado com apenas o necessário)
-const IDL: Idl = {
+// IDL Atualizado para o novo VestingContract
+const IDL: any = {
     "version": "0.1.0",
     "name": "verum_vesting",
     "instructions": [
