@@ -8,7 +8,23 @@ import {
 import { Program, AnchorProvider, BN } from '@coral-xyz/anchor';
 import type { Idl } from '@coral-xyz/anchor';
 import { getAssociatedTokenAddress, TOKEN_PROGRAM_ID } from '@solana/spl-token';
-import { PROGRAM_IDS, DEFAULT_NETWORK } from './solana-config';
+import { PROGRAM_IDS, DEFAULT_NETWORK, getRpcUrl } from './solana-config';
+
+/**
+ * Utility to fetch token balance for a specific token account (ATA)
+ */
+export const getTokenBalance = async (tokenAccountAddress: string, connection?: Connection) => {
+    const conn = connection || new Connection(getRpcUrl(DEFAULT_NETWORK), 'confirmed');
+    const pubkey = new PublicKey(tokenAccountAddress);
+    try {
+        const balance = await conn.getTokenAccountBalance(pubkey);
+        return balance.value;
+    } catch (e) {
+        console.warn(`Error fetching balance for ${tokenAccountAddress}:`, e);
+        return { uiAmount: 0, amount: '0', decimals: 0 };
+    }
+};
+
 
 // -------------------------------------------------------------------------
 // IDL DEFINITION (Based on lib.rs)
