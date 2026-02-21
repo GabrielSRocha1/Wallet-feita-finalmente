@@ -1,5 +1,7 @@
+export const runtime = "nodejs";
+
 import { Connection, Keypair, PublicKey, Transaction } from '@solana/web3.js';
-import { Program, AnchorProvider, Wallet, Idl, BN } from '@project-serum/anchor';
+import { Program, AnchorProvider, NodeWallet, Idl, BN } from '@coral-xyz/anchor';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAssociatedTokenAddress, createAssociatedTokenAccountIdempotentInstruction } from '@solana/spl-token';
 
@@ -66,7 +68,7 @@ export async function GET(request: NextRequest) {
     try {
         const connection = new Connection(RPC_URL, 'confirmed');
         const relayerKeypair = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(RELAYER_PRIVATE_KEY)));
-        const wallet = new Wallet(relayerKeypair);
+        const wallet = new NodeWallet(relayerKeypair);
         const provider = new AnchorProvider(connection, wallet, { commitment: 'confirmed' });
         const program = new Program(IDL, PROGRAM_ID, provider);
 
