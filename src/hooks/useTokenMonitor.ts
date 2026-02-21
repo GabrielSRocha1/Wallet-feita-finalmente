@@ -71,17 +71,46 @@ export const useTokenMonitor = (walletAddress: string | null): UseTokenMonitorRe
         // Fallback robusto para SOL se Jupiter falhar
         if (solPrice === 0) {
             try {
-                // Outro fallback: CoinGecko (Sem API Key)
                 const cgRes = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd').catch(() => null);
                 if (cgRes?.ok) {
                     const data = await cgRes.json();
-                    solPrice = parseFloat(data.solana.usd);
-                    console.log(`[useTokenMonitor] Preço SOL CoinGecko: $${solPrice}`);
+                    if (data?.solana?.usd) {
+                        solPrice = parseFloat(data.solana.usd);
+                        console.log(`[useTokenMonitor] Preço SOL CoinGecko: $${solPrice}`);
+                    }
                 }
             } catch (e) { console.warn("[useTokenMonitor] Price error (CoinGecko):", e); }
         }
 
-        if (solPrice === 0) solPrice = 80.50; // Atualizado para valor mais recente se tudo falhar
+        if (solPrice === 0) {
+            try {
+                const dexRes = await fetch('https://api.dexscreener.com/latest/dex/tokens/So11111111111111111111111111111111111111112').catch(() => null);
+                if (dexRes?.ok) {
+                    const data = await dexRes.json();
+                    if (data?.pairs?.length > 0) {
+                        const wsolPairs = data.pairs.filter((p: any) => p.baseToken?.address === 'So11111111111111111111111111111111111111112' && p.priceUsd);
+                        if (wsolPairs.length > 0) {
+                            wsolPairs.sort((a: any, b: any) => (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0));
+                            solPrice = parseFloat(wsolPairs[0].priceUsd);
+                            console.log(`[useTokenMonitor] Preço SOL DexScreener: $${solPrice}`);
+                        }
+                    }
+                }
+            } catch (e) { console.warn("[useTokenMonitor] Price error (DexScreener):", e); }
+        }
+
+        if (solPrice === 0) {
+            try {
+                const bitRes = await fetch('https://api.binance.com/api/v3/ticker/price?symbol=SOLUSDT').catch(() => null);
+                if (bitRes?.ok) {
+                    const data = await bitRes.json();
+                    solPrice = parseFloat(data.price);
+                    console.log(`[useTokenMonitor] Preço SOL Binance: $${solPrice}`);
+                }
+            } catch (e) { console.warn("[useTokenMonitor] Price error (Binance):", e); }
+        }
+
+        if (solPrice === 0) solPrice = 145.82;
 
         const otherTokens = tokenList.filter(t => t.symbol !== 'SOL');
         const mints = otherTokens.map(t => t.mint).filter(Boolean);
@@ -334,29 +363,11 @@ export const useTokenMonitor = (walletAddress: string | null): UseTokenMonitorRe
             return;
         }
         fetchBalances();
-
-        // Account changes (Balances)
         const subId = connection.onAccountChange(pubKey, () => fetchBalances(true), 'confirmed');
-
-        // Intervalo mais curto para PREÇOS (15s) vs BALANÇOS (30s)
-        const balanceInterval = setInterval(() => fetchBalances(true), 30000);
-
-        // Efeito para atualizar preços em tempo real com mais frequência
-        const priceInterval = setInterval(async () => {
-            setTokens(prevTokens => {
-                if (prevTokens.length === 0) return prevTokens;
-                // Chamamos fetchRealPrices mas apenas para atualizar o estado local se houver mudanças
-                fetchRealPrices(prevTokens).then(enriched => {
-                    setTokens(enriched);
-                });
-                return prevTokens;
-            });
-        }, 15000);
-
+        const interval = setInterval(() => fetchBalances(true), 30000);
         return () => {
             connection.removeAccountChangeListener(subId);
-            clearInterval(balanceInterval);
-            clearInterval(priceInterval);
+            clearInterval(interval);
         };
     }, [walletAddress, fetchBalances, connection]);
 

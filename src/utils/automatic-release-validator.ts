@@ -55,9 +55,9 @@ export const validateReleaseToWallet = async (
         let currentBalance = 0;
         let balanceMatched = false;
 
-        const initialBalance = (preFlightBalance !== undefined
+        const initialBalance = preFlightBalance !== undefined
             ? preFlightBalance
-            : (await getTokenBalance(targetTokenAccount, connection)).uiAmount) ?? 0;
+            : (await getTokenBalance(targetTokenAccount)).uiAmount;
 
         console.log(`Initial Balance: ${initialBalance}`);
 
@@ -65,7 +65,7 @@ export const validateReleaseToWallet = async (
             attempts++;
             await new Promise(r => setTimeout(r, 2000)); // 2s polling interval
 
-            const balanceData = await getTokenBalance(targetTokenAccount, connection);
+            const balanceData = await getTokenBalance(targetTokenAccount);
             currentBalance = balanceData.uiAmount || 0;
 
             const delta = currentBalance - initialBalance;

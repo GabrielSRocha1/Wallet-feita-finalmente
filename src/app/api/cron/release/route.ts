@@ -1,21 +1,14 @@
-
-import { Connection, Keypair, PublicKey, Transaction, TransactionInstruction } from '@solana/web3.js';
-import { Program, AnchorProvider, Wallet, BN } from '@coral-xyz/anchor';
-import type { Idl } from '@coral-xyz/anchor';
+import { Connection, Keypair, PublicKey, Transaction } from '@solana/web3.js';
+import { Program, AnchorProvider, Wallet, Idl, BN } from '@project-serum/anchor';
 import { NextRequest, NextResponse } from 'next/server';
-import { getAssociatedTokenAddress, TOKEN_PROGRAM_ID } from '@solana/spl-token';
+import { getAssociatedTokenAddress, createAssociatedTokenAccountIdempotentInstruction } from '@solana/spl-token';
 
-// Use the correct Program ID from config or hardcoded if needed
-// This should match declare_id! in lib.rs
 const PROGRAM_ID = new PublicKey("HMqYLNw1ABgVeFcP2PmwDv6bibcm9y318aTo2g25xQMm");
-
-// Configuração do RPC e Wallet (Admin/Relayer)
 const RPC_URL = process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.devnet.solana.com';
-// RELAYER_PRIVATE_KEY is a JSON array string e.g. "[12,34,...]"
 const RELAYER_PRIVATE_KEY = process.env.RELAYER_PRIVATE_KEY;
 
-// IDL Atualizado para o novo VestingContract
-const IDL: any = {
+// IDL atualizado com base no lib.rs mais recente
+const IDL: Idl = {
     "version": "0.1.0",
     "name": "verum_vesting",
     "instructions": [
@@ -25,7 +18,9 @@ const IDL: any = {
                 { "name": "vestingContract", "isMut": true, "isSigner": false },
                 { "name": "escrowWallet", "isMut": true, "isSigner": false },
                 { "name": "beneficiaryTokenAccount", "isMut": true, "isSigner": false },
-                { "name": "tokenProgram", "isMut": false, "isSigner": false }
+                { "name": "beneficiary", "isMut": false, "isSigner": false },
+                { "name": "tokenProgram", "isMut": false, "isSigner": false },
+                { "name": "token2022Program", "isMut": false, "isSigner": false }
             ],
             "args": []
         }
@@ -45,7 +40,9 @@ const IDL: any = {
                     { "name": "endTime", "type": "i64" },
                     { "name": "contractId", "type": "u64" },
                     { "name": "vestingType", "type": { "defined": "VestingType" } },
-                    { "name": "bump", "type": "u8" }
+                    { "name": "bump", "type": "u8" },
+                    { "name": "isCancelled", "type": "bool" },
+                    { "name": "isToken2022", "type": "bool" }
                 ]
             }
         }
@@ -55,10 +52,7 @@ const IDL: any = {
             "name": "VestingType",
             "type": {
                 "kind": "enum",
-                "variants": [
-                    { "name": "Linear" },
-                    { "name": "Cliff" }
-                ]
+                "variants": [{ "name": "Linear" }, { "name": "Cliff" }]
             }
         }
     ]
@@ -70,98 +64,91 @@ export async function GET(request: NextRequest) {
     }
 
     try {
-        // Setup Connection e Wallet
         const connection = new Connection(RPC_URL, 'confirmed');
-        let relayerKeypair: Keypair;
-        try {
-            relayerKeypair = Keypair.fromSecretKey(
-                Uint8Array.from(JSON.parse(RELAYER_PRIVATE_KEY))
-            );
-        } catch (e) {
-            return NextResponse.json({ error: 'Invalid RELAYER_PRIVATE_KEY format' }, { status: 500 });
-        }
-
+        const relayerKeypair = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(RELAYER_PRIVATE_KEY)));
         const wallet = new Wallet(relayerKeypair);
         const provider = new AnchorProvider(connection, wallet, { commitment: 'confirmed' });
-
-        // @ts-ignore
         const program = new Program(IDL, PROGRAM_ID, provider);
 
-        console.log("Iniciando processo de liberação automática (VestingContract)...");
+        const splTokenProgramId = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+        const token2022ProgramId = new PublicKey("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb");
 
-        // 1. Buscar todas as contas de Vesting
-        // @ts-ignore
+        console.log("[Relayer] Buscando contratos de vesting...");
         const vestingAccounts = await program.account.vestingContract.all();
-        console.log(`Encontradas ${vestingAccounts.length} contas de vesting.`);
+        console.log(`[Relayer] Encontrados ${vestingAccounts.length} contratos.`);
 
-        const results: any[] = [];
+        const results = [];
+        const currentTime = Math.floor(Date.now() / 1000);
 
-        // 2. Iterar e verificar se pode liberar
-        for (const account of vestingAccounts) {
+        for (const record of vestingAccounts) {
             try {
-                const data = account.account;
-                const pubkey = account.publicKey;
+                const contract = record.account as any;
+                const contractPubkey = record.publicKey;
 
-                const currentTime = Math.floor(Date.now() / 1000);
-
-                // Check releasedAmount vs totalAmount
-                // Using BN comparison
-                const total = new BN(data.totalAmount);
-                const released = new BN(data.releasedAmount);
-                const start = new BN(data.startTime).toNumber();
-
-                if (released.gte(total)) {
-                    // Already fully released
+                // 1. Filtros básicos
+                if (contract.isCancelled || contract.releasedAmount.gte(contract.totalAmount)) {
                     continue;
                 }
 
-                // Só processa se já começou
-                if (currentTime < start) continue;
+                // 2. Verificar se há algo para liberar (simulação simplificada do cálculo do contrato)
+                if (currentTime < contract.startTime.toNumber()) {
+                    continue;
+                }
 
-                // Tentar liberar
-                const beneficiary = new PublicKey(data.beneficiary);
-                const mint = new PublicKey(data.mint);
+                // 3. Preparar contas para claim
+                const tokenProgramId = contract.isToken2022 ? token2022ProgramId : splTokenProgramId;
 
-                // Derivar ATA do beneficiário
-                const beneficiaryTokenAccount = await getAssociatedTokenAddress(mint, beneficiary);
+                const beneficiaryTokenAccount = await getAssociatedTokenAddress(
+                    contract.mint,
+                    contract.beneficiary,
+                    false,
+                    tokenProgramId
+                );
 
-                // Derivar Escrow PDA ["escrow", vestingContract]
                 const [escrowWallet] = PublicKey.findProgramAddressSync(
-                    [Buffer.from("escrow"), pubkey.toBuffer()],
+                    [Buffer.from("escrow"), contractPubkey.toBuffer()],
                     PROGRAM_ID
                 );
 
-                // Check if there is anything to release (simple check to save RPC calls)
-                // We could replicate `calculate_vested_amount` here, but for now let's just try calling the instruction
-                // if it's past start time. The contract will error if nothing to release.
-                // Optimally we'd pre-calculate to avoid error spam.
+                console.log(`[Relayer] Processando claim para: ${contractPubkey.toBase58()}`);
 
-                console.log(`Tentando liberar para contrato ${pubkey.toString()}...`);
+                // 4. Montar a transação
+                const transaction = new Transaction();
 
-                const tx = await program.methods.claimTokens()
+                // Garantir que a ATA do beneficiário existe (Idempotent)
+                transaction.add(
+                    createAssociatedTokenAccountIdempotentInstruction(
+                        relayerKeypair.publicKey, // Relayer paga o rent da ATA se necessário
+                        beneficiaryTokenAccount,
+                        contract.beneficiary,
+                        contract.mint,
+                        tokenProgramId
+                    )
+                );
+
+                // Instrução do Contrato
+                const claimIx = await program.methods.claimTokens()
                     .accounts({
-                        vestingContract: pubkey,
-                        escrowWallet: escrowWallet,
-                        beneficiaryTokenAccount: beneficiaryTokenAccount,
-                        tokenProgram: TOKEN_PROGRAM_ID
+                        vestingContract: contractPubkey,
+                        escrowWallet,
+                        beneficiaryTokenAccount,
+                        beneficiary: contract.beneficiary,
+                        tokenProgram: splTokenProgramId,
+                        token2022Program: token2022ProgramId,
                     })
-                    .rpc();
+                    .instruction();
 
-                console.log(`Sucesso! TX: ${tx}`);
-                results.push({ account: pubkey.toString(), status: 'success', tx });
+                transaction.add(claimIx);
+
+                // Enviar usando o provider para automatizar sign/confirm
+                const tx = await (program.provider as any).sendAndConfirm(transaction);
+
+                console.log(`[Relayer] Sucesso: ${tx}`);
+                results.push({ contract: contractPubkey.toBase58(), tx });
 
             } catch (err: any) {
-                // Determine if it's "NothingToRelease" error
-                // VestingError::NothingToRelease is usually code 6000 or custom.
-                // We'll log it as 'info' if it's just nothing to release vs an actual error.
-                const msg = err.message || JSON.stringify(err);
-                if (msg.includes("NothingToRelease") || msg.includes("0x1770")) { // 0x1770 = 6000 dec
-                    // Expected error if just checking too often
-                    // results.push({ account: account.publicKey.toString(), status: 'skipped', reason: 'NothingToRelease' });
-                } else {
-                    console.error(`Erro ao processar conta ${account.publicKey.toString()}:`, msg);
-                    results.push({ account: account.publicKey.toString(), status: 'error', error: msg });
-                }
+                console.error(`[Relayer] Erro no contrato ${record.publicKey.toBase58()}:`, err.message);
+                results.push({ contract: record.publicKey.toBase58(), error: err.message });
             }
         }
 
@@ -172,7 +159,7 @@ export async function GET(request: NextRequest) {
         });
 
     } catch (error: any) {
-        console.error("Erro geral no script de automação:", error);
+        console.error("[Relayer] Erro geral:", error);
         return NextResponse.json({ error: error.message }, { status: 500 });
     }
 }

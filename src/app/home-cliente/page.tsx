@@ -9,9 +9,6 @@ import { useTokenMonitor } from "@/hooks/useTokenMonitor";
 import { useNetwork } from "@/contexts/NetworkContext";
 import ConnectWalletModal from "@/components/ConnectWalletModal";
 import NetworkSelector from "@/components/NetworkSelector";
-import { useVestingActions } from "@/hooks/useVestingActions";
-import SendTokenModal from "@/components/SendTokenModal";
-import ReceiveTokenModal from "@/components/ReceiveTokenModal";
 import { parseVestingDate } from "@/utils/date-utils";
 
 export default function HomeClientePage() {
@@ -21,14 +18,16 @@ export default function HomeClientePage() {
     const { tokens: walletTokens, loading: loadingTokens } = useTokenMonitor(publicKey);
     const [isWalletDropdownOpen, setIsWalletDropdownOpen] = useState(false);
     const [isConnectModalOpen, setIsConnectModalOpen] = useState(false);
-    const [isSendModalOpen, setIsSendModalOpen] = useState(false);
-    const [isReceiveModalOpen, setIsReceiveModalOpen] = useState(false);
-    const [selectedTokenForAction, setSelectedTokenForAction] = useState<any>(null);
-    const { claimTokens } = useVestingActions();
-    const [isClaiming, setIsClaiming] = useState<string | null>(null);
     const [contracts, setContracts] = useState<any[]>([]);
     const [activeFilter, setActiveFilter] = useState("em-andamento");
     const [searchQuery, setSearchQuery] = useState("");
+    const [tick, setTick] = useState(0);
+
+    // Ticker para atualizações em tempo real
+    useEffect(() => {
+        const timer = setInterval(() => setTick(t => t + 1), 1000);
+        return () => clearInterval(timer);
+    }, []);
 
     useEffect(() => {
         const saved = localStorage.getItem("created_contracts");
@@ -157,6 +156,16 @@ export default function HomeClientePage() {
         }
     };
 
+    const handleClearTests = () => {
+        if (confirm("Deseja realmente limpar todos os contratos de teste? Esta ação não afetará o blockchain, apenas o histórico local.")) {
+            localStorage.removeItem("created_contracts");
+            localStorage.removeItem("selected_contract");
+            setContracts([]);
+            alert("Dados de teste removidos!");
+            window.location.reload();
+        }
+    };
+
     const handleViewDetails = (contract: any) => {
         localStorage.setItem("selected_contract", JSON.stringify(contract));
         router.push("/contrato-detalhes");
@@ -278,7 +287,7 @@ export default function HomeClientePage() {
             // Se empatar no USD (ex: ambos $0), ordena pelo total absoluto (bloqueado + líquido)
             return (b.absoluteTotal || 0) - (a.absoluteTotal || 0);
         });
-    }, [walletTokens, contracts, connected, publicKey, currentNetwork]);
+    }, [walletTokens, contracts, connected, publicKey, currentNetwork, tick]);
 
     // Filter Logic - Normalized for active category selection
     const relevantContracts = React.useMemo(() => {
@@ -436,6 +445,16 @@ export default function HomeClientePage() {
                     </div>
 
                     <div className="flex items-center gap-3">
+                        {connected && isAdminUser && (
+                            <button
+                                onClick={handleClearTests}
+                                className="bg-red-500/10 hover:bg-red-500/20 text-red-500 text-[10px] font-bold py-2 px-3 rounded-lg transition-all border border-red-500/20 flex items-center gap-1 cursor-pointer"
+                                title="Limpar dados locais de teste"
+                            >
+                                <span className="material-icons-round text-sm">delete_sweep</span>
+                                Limpar Dados
+                            </button>
+                        )}
                         {connected && isAdminUser && <NetworkSelector />}
 
                         {!connected ? (
@@ -531,117 +550,56 @@ export default function HomeClientePage() {
                             return (
                                 <div
                                     key={token.mint}
-                                    className="bg-zinc-900/60 border border-white/5 rounded-[24px] p-4 flex flex-col gap-4 shadow-lg hover:bg-zinc-900/80 transition-all group overflow-hidden"
+                                    className="bg-zinc-900/60 border border-white/5 rounded-2xl p-4 flex items-center justify-between shadow-lg hover:bg-zinc-900/80 transition-all group"
                                 >
-                                    <div className="flex items-center justify-between w-full">
-                                        {/* Left: Token Icon & Name */}
-                                        <div className="flex items-center gap-3">
-                                            {token.image ? (
-                                                <div className="relative w-12 h-12 rounded-full border-2 border-[#EAB308]/20 p-1 bg-black flex items-center justify-center overflow-hidden">
-                                                    <img
-                                                        alt={`${symbol} Logo`}
-                                                        className="w-full h-full object-contain"
-                                                        src={token.image}
-                                                    />
-                                                </div>
-                                            ) : (
-                                                <div className="w-12 h-12 rounded-full border-2 border-[#EAB308]/20 bg-zinc-800 flex items-center justify-center font-black text-[#EAB308] text-lg">
-                                                    {symbol?.[0] || "T"}
-                                                </div>
-                                            )}
-                                            <div>
-                                                <div className="flex items-center gap-2">
-                                                    <h3 className="font-bold text-zinc-100 text-base uppercase tracking-wide">
-                                                        {token.name || symbol}
-                                                    </h3>
-                                                    {token.hasVesting && (
-                                                        <span className="bg-[#EAB308]/10 text-[#EAB308] text-[8px] font-black px-1.5 py-0.5 rounded border border-[#EAB308]/20 uppercase tracking-tighter">
-                                                            Vesting
-                                                        </span>
-                                                    )}
-                                                </div>
-                                                <p className="text-zinc-500 text-xs font-mono">
-                                                    {tokenPrice > 0 ? `$${tokenPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}` : 'Preço indisponível'}
-                                                </p>
+                                    {/* Left: Token Icon & Name */}
+                                    <div className="flex items-center gap-3">
+                                        {token.image ? (
+                                            <div className="relative w-12 h-12 rounded-full border-2 border-[#EAB308]/20 p-1 bg-black flex items-center justify-center overflow-hidden">
+                                                <img
+                                                    alt={`${symbol} Logo`}
+                                                    className="w-full h-full object-contain"
+                                                    src={token.image}
+                                                />
                                             </div>
-                                        </div>
-
-                                        <div className="text-right">
-                                            <span className={`font-bold text-base block ${token.rowValueUsd > 0 ? 'text-zinc-200' : 'text-zinc-500'}`}>
-                                                ${token.rowValueUsd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                            </span>
-                                            <div className="flex flex-col items-end">
-                                                <p className="text-zinc-500 text-xs font-mono whitespace-nowrap">
-                                                    {token.displayAmount.toLocaleString(undefined, { maximumFractionDigits: 6 })} {symbol}
-                                                </p>
+                                        ) : (
+                                            <div className="w-12 h-12 rounded-full border-2 border-[#EAB308]/20 bg-zinc-800 flex items-center justify-center font-black text-[#EAB308] text-lg">
+                                                {symbol?.[0] || "T"}
+                                            </div>
+                                        )}
+                                        <div>
+                                            <div className="flex items-center gap-2">
+                                                <h3 className="font-bold text-zinc-100 text-base uppercase tracking-wide">
+                                                    {token.name || symbol}
+                                                </h3>
                                                 {token.hasVesting && (
-                                                    <p className="text-[9px] text-zinc-600 font-bold uppercase tracking-tight mt-0.5">
-                                                        {token.liquidAmount.toLocaleString(undefined, { maximumFractionDigits: 2 })} liq.
-                                                        <span className="mx-1">•</span>
-                                                        {token.claimableAmount > 0 ? (
-                                                            <span className="text-[#EAB308] animate-pulse">{token.claimableAmount.toLocaleString(undefined, { maximumFractionDigits: 2 })} claim.</span>
-                                                        ) : (
-                                                            <span>{token.lockedAmount.toLocaleString(undefined, { maximumFractionDigits: 2 })} bloq.</span>
-                                                        )}
-                                                    </p>
+                                                    <span className="bg-[#EAB308]/10 text-[#EAB308] text-[8px] font-black px-1.5 py-0.5 rounded border border-[#EAB308]/20 uppercase tracking-tighter">
+                                                        Vesting
+                                                    </span>
                                                 )}
                                             </div>
+                                            <p className="text-zinc-500 text-xs font-mono">
+                                                {tokenPrice > 0 ? `$${tokenPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}` : 'Preço indisponível'}
+                                            </p>
                                         </div>
                                     </div>
 
-                                    {/* Action Buttons - Premium Glassmorphism style */}
-                                    <div className="flex items-center gap-2 pt-1 border-t border-white/5">
-                                        <button
-                                            onClick={() => {
-                                                setSelectedTokenForAction(token);
-                                                setIsSendModalOpen(true);
-                                            }}
-                                            className="flex-1 bg-white/5 hover:bg-white/10 text-white text-[10px] font-black uppercase tracking-widest py-2.5 rounded-xl border border-white/5 transition-all active:scale-95 flex items-center justify-center gap-1.5 cursor-pointer"
-                                        >
-                                            <span className="material-icons-round text-sm text-[#EAB308]">send</span>
-                                            Enviar
-                                        </button>
-                                        <button
-                                            onClick={() => setIsReceiveModalOpen(true)}
-                                            className="flex-1 bg-white/5 hover:bg-white/10 text-white text-[10px] font-black uppercase tracking-widest py-2.5 rounded-xl border border-white/5 transition-all active:scale-95 flex items-center justify-center gap-1.5 cursor-pointer"
-                                        >
-                                            <span className="material-icons-round text-sm text-[#EAB308]">call_received</span>
-                                            Receber
-                                        </button>
-                                        {token.hasVesting && token.claimableAmount > 0 && (
-                                            <button
-                                                disabled={isClaiming === token.mint}
-                                                onClick={async (e) => {
-                                                    e.stopPropagation();
-                                                    setIsClaiming(token.mint);
-                                                    try {
-                                                        // Find the contract for this token that has claimable balance
-                                                        const contract = contracts.find(c =>
-                                                            c.selectedToken?.mint === token.mint &&
-                                                            c.recipientAddress === publicKey
-                                                        );
-                                                        if (contract?.vestingAccount) {
-                                                            await claimTokens(contract.vestingAccount);
-                                                            // Refresh or notify
-                                                            alert("Resgate realizado com sucesso!");
-                                                        }
-                                                    } catch (err) {
-                                                        console.error("Claim failed:", err);
-                                                        alert("Ocorreu um erro ao resgatar.");
-                                                    } finally {
-                                                        setIsClaiming(null);
-                                                    }
-                                                }}
-                                                className="flex-1 bg-[#EAB308]/20 hover:bg-[#EAB308]/30 text-[#EAB308] text-[10px] font-black uppercase tracking-widest py-2.5 rounded-xl border border-[#EAB308]/30 transition-all active:scale-95 flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 disabled:cursor-wait"
-                                            >
-                                                {isClaiming === token.mint ? (
-                                                    <div className="w-3 h-3 border-2 border-[#EAB308]/20 border-t-[#EAB308] rounded-full animate-spin"></div>
-                                                ) : (
-                                                    <span className="material-icons-round text-sm">lock_open</span>
-                                                )}
-                                                {isClaiming === token.mint ? 'Processando' : 'Resgatar'}
-                                            </button>
-                                        )}
+                                    <div className="text-right">
+                                        <span className={`font-bold text-base block ${token.rowValueUsd > 0 ? 'text-zinc-200' : 'text-zinc-500'}`}>
+                                            ${token.rowValueUsd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                        </span>
+                                        <div className="flex flex-col items-end">
+                                            <p className="text-zinc-500 text-xs font-mono whitespace-nowrap">
+                                                {token.displayAmount.toLocaleString(undefined, { maximumFractionDigits: 6 })} {symbol}
+                                            </p>
+                                            {token.hasVesting && (
+                                                <p className="text-[9px] text-zinc-600 font-bold uppercase tracking-tight mt-0.5">
+                                                    {token.lockedAmount.toLocaleString(undefined, { maximumFractionDigits: 2 })} LIQ.
+                                                    <span className="mx-1">•</span>
+                                                    {token.claimableAmount.toLocaleString(undefined, { maximumFractionDigits: 2 })} CLAIM.
+                                                </p>
+                                            )}
+                                        </div>
                                     </div>
                                 </div>
                             );
@@ -932,18 +890,6 @@ export default function HomeClientePage() {
             <ConnectWalletModal
                 isOpen={isConnectModalOpen}
                 onClose={() => setIsConnectModalOpen(false)}
-            />
-
-            {/* Action Modals */}
-            <SendTokenModal
-                isOpen={isSendModalOpen}
-                onClose={() => setIsSendModalOpen(false)}
-                token={selectedTokenForAction}
-            />
-            <ReceiveTokenModal
-                isOpen={isReceiveModalOpen}
-                onClose={() => setIsReceiveModalOpen(false)}
-                publicKey={publicKey}
             />
         </div>
     );

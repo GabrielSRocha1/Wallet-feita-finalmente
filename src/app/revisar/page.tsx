@@ -9,8 +9,56 @@ import { useWallet } from "@/contexts/WalletContext";
 import { useNetwork } from "@/contexts/NetworkContext";
 import { isAdmin } from "@/utils/rbac";
 import NetworkSelector from "@/components/NetworkSelector";
-import { Transaction, SystemProgram, PublicKey } from '@solana/web3.js';
+import { Transaction, SystemProgram, PublicKey, SYSVAR_RENT_PUBKEY } from '@solana/web3.js';
 import { parseVestingDate } from "@/utils/date-utils";
+import { getAssociatedTokenAddress, TOKEN_PROGRAM_ID } from '@solana/spl-token';
+import { Program, AnchorProvider, Idl, BN } from '@project-serum/anchor';
+import { detectTokenProgram } from "@/utils/tokenProgram";
+import { createAssociatedTokenAccountIdempotentInstruction } from '@solana/spl-token';
+
+const TOKEN_2022_PROGRAM_ID = new PublicKey("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb");
+
+const PROGRAM_ID = new PublicKey("HMqYLNw1ABgVeFcP2PmwDv6bibcm9y318aTo2g25xQMm");
+
+const IDL: Idl = {
+    "version": "0.1.0",
+    "name": "verum_vesting",
+    "instructions": [
+        {
+            "name": "createVesting",
+            "accounts": [
+                { "name": "vestingContract", "isMut": true, "isSigner": false },
+                { "name": "creator", "isMut": true, "isSigner": true },
+                { "name": "beneficiary", "isMut": false, "isSigner": false },
+                { "name": "mint", "isMut": false, "isSigner": false },
+                { "name": "escrowWallet", "isMut": true, "isSigner": false },
+                { "name": "senderTokenAccount", "isMut": true, "isSigner": false },
+                { "name": "systemProgram", "isMut": false, "isSigner": false },
+                { "name": "tokenProgram", "isMut": false, "isSigner": false }
+            ],
+            "args": [
+                { "name": "contractId", "type": "u64" },
+                { "name": "totalAmount", "type": "u64" },
+                { "name": "startTime", "type": "i64" },
+                { "name": "endTime", "type": "i64" },
+                { "name": "vestingType", "type": { "defined": "VestingType" } }
+            ]
+        }
+    ],
+    "types": [
+        {
+            "name": "VestingType",
+            "type": {
+                "kind": "enum",
+                "variants": [
+                    { "name": "Linear" },
+                    { "name": "Cliff" }
+                ]
+            }
+        }
+    ]
+};
+
 
 export default function ReviewPage() {
     const router = useRouter();
@@ -54,53 +102,184 @@ export default function ReviewPage() {
         try {
             setIsTransactionPending(true);
 
-            // Create a test transaction to visualize fees (0.000001 SOL to self)
-            const transaction = new Transaction().add(
-                SystemProgram.transfer({
-                    fromPubkey: new PublicKey(publicKey),
-                    toPubkey: new PublicKey(publicKey),
-                    lamports: 1000, // Minimal amount
-                })
+            // Fetch Token details
+            const selectedToken = config?.selectedToken;
+            if (!selectedToken) throw new Error("Token não configurado corretamente no rascunho.");
+
+            const mintPubkey = new PublicKey(selectedToken.address || selectedToken.mint);
+            // Detectar qual programa de token usar (SPL ou Token-2022)
+            const tokenProgramId = await detectTokenProgram(connection, selectedToken.address || selectedToken.mint);
+
+
+            // BUSCAR DECIMAIS REAIS DIRETO DA SOLANA (Production-ready)
+            const mintInfo = await connection.getParsedAccountInfo(mintPubkey);
+            const realDecimals = (mintInfo.value?.data as any)?.parsed?.info?.decimals;
+            if (realDecimals === undefined) {
+                throw new Error("Não foi possível validar os decimais do token na blockchain.");
+            }
+
+            const creatorPubkey = new PublicKey(publicKey);
+            const senderTokenAccount = await getAssociatedTokenAddress(
+                mintPubkey,
+                creatorPubkey,
+                false,
+                tokenProgramId
             );
 
-            const { blockhash } = await connection.getLatestBlockhash();
-            transaction.recentBlockhash = blockhash;
-            transaction.feePayer = new PublicKey(publicKey);
+            // Configurar Anchor Provider e Program
+            const provider = new AnchorProvider(connection, wallet as any, { commitment: 'confirmed' });
+            const program = new Program(IDL, PROGRAM_ID, provider);
 
-            // Send transaction using the custom wallet adapter object
-            // Most adapters (Phantom, Solflare) implement sendTransaction(tx, connection)
+            // Cria uma nova transação com todas as instruções de múltiplos destinatários
+            const transaction = new Transaction();
+
+            // Garantir que a ATA do remetente existe (Idempotent)
+            transaction.add(
+                createAssociatedTokenAccountIdempotentInstruction(
+                    creatorPubkey,
+                    senderTokenAccount,
+                    creatorPubkey,
+                    mintPubkey,
+                    tokenProgramId
+                )
+            );
+
+            // Setup de Tempos
+            const startDateObj = parseVestingDate(config.vestingStartDate);
+            if (!startDateObj) throw new Error("Data de início inválida.");
+            const startTimestamp = Math.floor(startDateObj.getTime() / 1000);
+
+            // Calcular o End Date em Ms
+            const endDateObj = new Date(startDateObj.getTime());
+            const duration = parseInt(config.vestingDuration || "0");
+            const unit = config.selectedTimeUnit?.toLowerCase() || "";
+
+            if (unit.includes('dia')) endDateObj.setDate(endDateObj.getDate() + duration);
+            else if (unit.includes('mês') || unit.includes('mes')) endDateObj.setMonth(endDateObj.getMonth() + duration);
+            else if (unit.includes('ano')) endDateObj.setFullYear(endDateObj.getFullYear() + duration);
+            else if (unit.includes('hora')) endDateObj.setHours(endDateObj.getHours() + duration);
+            else if (unit.includes('semana')) endDateObj.setDate(endDateObj.getDate() + (duration * 7));
+
+            const endTimestamp = Math.floor(endDateObj.getTime() / 1000);
+
+            let createdIds: string[] = [];
+
+            // Preparar instruções para todos os destinatários
+            for (let i = 0; i < recipients.length; i++) {
+                const recipient = recipients[i];
+                const recipientPubkey = new PublicKey(recipient.walletAddress); // Changed from recipient.address to recipient.walletAddress to match original
+                const contractIdValue = new BN(Date.now()).add(new BN(i));
+                createdIds.push(contractIdValue.toString());
+
+                // Calcular PDAs
+                const [vestingContract] = PublicKey.findProgramAddressSync(
+                    [Buffer.from("vesting"), creatorPubkey.toBuffer(), mintPubkey.toBuffer(), contractIdValue.toArrayLike(Buffer, "le", 8)],
+                    PROGRAM_ID
+                );
+
+                const [escrowWallet] = PublicKey.findProgramAddressSync(
+                    [Buffer.from("escrow"), vestingContract.toBuffer()],
+                    PROGRAM_ID
+                );
+
+                // Converter valores (Usando decimais reais da rede)
+                const totalAmountOnChain = new BN(Math.floor(parseFloat(recipient.amount.replace(',', '.')) * Math.pow(10, realDecimals)));
+
+                // Determinar Tipo de Vesting
+                let vestingType = { linear: {} };
+                if (config.selectedSchedule === "cliff") {
+                    const cliffDate = parseVestingDate(config.vestingStartDate);
+                    const cliffTimestamp = new BN(Math.floor((cliffDate?.getTime() || Date.now()) / 1000));
+                    vestingType = { cliff: [cliffTimestamp] } as any;
+                }
+
+                // Adicionar instrução CreateVesting
+                const createVestingIx = await program.methods
+                    .createVesting(
+                        contractIdValue,
+                        totalAmountOnChain,
+                        new BN(startTimestamp), // Use startTimestamp from above
+                        new BN(endTimestamp), // Use endTimestamp from above
+                        vestingType as any
+                    )
+                    .accounts({
+                        vestingContract,
+                        creator: creatorPubkey,
+                        beneficiary: recipientPubkey,
+                        mint: mintPubkey,
+                        escrowWallet,
+                        senderTokenAccount,
+                        systemProgram: SystemProgram.programId,
+                        tokenProgram: tokenProgramId, // detectado dinamicamente — Interface<TokenInterface>
+                    })
+                    .instruction();
+
+                transaction.add(createVestingIx);
+            }
+
+            // ✅ CHECK 4: Verificar saldo da ATA antes de enviar
+            const senderAccountInfo = await connection.getTokenAccountBalance(senderTokenAccount);
+            const senderBalance = new BN(senderAccountInfo.value.amount);
+            const totalRequired = recipients.reduce((acc: BN, r: any) => {
+                const amt = new BN(Math.floor(parseFloat(r.amount.replace(',', '.')) * Math.pow(10, realDecimals)));
+                return acc.add(amt);
+            }, new BN(0));
+            console.log('[revisar] Saldo ATA creator:', senderBalance.toString(), '| Total necessário:', totalRequired.toString());
+            if (senderBalance.lt(totalRequired)) {
+                const hasFormatted = (senderBalance.toNumber() / Math.pow(10, realDecimals)).toFixed(realDecimals);
+                const needFormatted = (totalRequired.toNumber() / Math.pow(10, realDecimals)).toFixed(realDecimals);
+                throw new Error(`Saldo insuficiente: você tem ${hasFormatted} ${selectedToken.symbol}, mas precisa de ${needFormatted} ${selectedToken.symbol}.`);
+            }
+
+            // Assinatura e Envio real
+            const { blockhash } = await connection.getLatestBlockhash('confirmed');
+            transaction.recentBlockhash = blockhash;
+            transaction.feePayer = creatorPubkey;
+
+            // 🧪 SIMULAÇÃO — revela erros reais antes de enviar
+            const simulation = await connection.simulateTransaction(transaction);
+            console.log('[revisar] simulação:', JSON.stringify(simulation, null, 2));
+            if (simulation.value.err) {
+                console.error('[revisar] ❌ Erro na simulação:', simulation.value.err);
+                console.error('[revisar] Logs do programa:', simulation.value.logs);
+                throw new Error(`Simulação falhou: ${JSON.stringify(simulation.value.err)}\n\nLogs:\n${simulation.value.logs?.join('\n')}`);
+            }
+
             let signature = "";
 
             if (wallet.sendTransaction) {
                 signature = await wallet.sendTransaction(transaction, connection);
             } else if (wallet.signAndSendTransaction) {
-                // Some direct providers like window.solana use signAndSendTransaction
                 const { signature: sig } = await wallet.signAndSendTransaction(transaction);
                 signature = sig;
             } else {
                 throw new Error("Carteira não suporta envio de transações.");
             }
 
-            // Wait for confirmation (Skip if it's a mock signature)
-            if (signature && !signature.startsWith('mock_')) {
-                await connection.confirmTransaction(signature, 'confirmed');
-            } else {
-                console.log("[Revisar] Mock signature detected, skipping confirmation.");
-                // Artificial delay to simulate confirmation
-                await new Promise(r => setTimeout(r, 1000));
-            }
+            console.log("Transação on-chain enviada:", signature);
+            await connection.confirmTransaction(signature, 'confirmed');
 
-            // Success Message
-            alert("Contrato criado com sucesso!");
+            alert("Contrato Vesting criado com sucesso na Solana!");
 
-            // Proceed
+            // PDA do primeiro contrato (para retrocompatibilidade simples se necessário)
+            const [contractPubkey] = PublicKey.findProgramAddressSync(
+                [
+                    Buffer.from("vesting"),
+                    creatorPubkey.toBuffer(),
+                    mintPubkey.toBuffer(),
+                    new BN(createdIds[0]).toArrayLike(Buffer, "le", 8)
+                ],
+                PROGRAM_ID
+            );
+
+            localStorage.setItem("created_contract_ids", JSON.stringify(createdIds));
+            localStorage.setItem("last_vesting_signature", contractPubkey.toBase58());
+
             setIsVerificationModalOpen(false);
             router.push("/confirmar");
 
         } catch (error: any) {
             console.error("Transaction failed:", error);
-
-            // Analyze error message for cancellation
             const msg = error.message || String(error);
             if (msg.includes("User rejected") || msg.includes("rejected the request") || msg.includes("denied transaction")) {
                 alert("Transação cancelada pelo usuário.");
@@ -447,4 +626,3 @@ function DetailItem({ label, value, icon, showInfo, infoText, fullWidth }: { lab
         </div>
     );
 }
-

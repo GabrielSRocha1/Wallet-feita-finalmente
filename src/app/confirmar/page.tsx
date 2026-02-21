@@ -5,16 +5,13 @@ import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useNetwork } from "@/contexts/NetworkContext";
-import { useWallet } from "@/contexts/WalletContext";
 import { parseVestingDate } from "@/utils/date-utils";
-import { Connection } from "@solana/web3.js";
-import { getRpcUrl } from "@/utils/solana-config";
-import { createVestingTransaction } from "@/utils/verum-contract";
+import { PublicKey } from "@solana/web3.js";
+import { BN } from "@project-serum/anchor";
 
 export default function ConfirmationPage() {
     const router = useRouter();
     const { network: currentNetwork } = useNetwork();
-    const { wallet, connected } = useWallet();
     const [showToast, setShowToast] = useState(false);
 
     useEffect(() => {
@@ -26,7 +23,7 @@ export default function ConfirmationPage() {
 
                 if (savedConfig && savedRecipients) {
                     const config = JSON.parse(savedConfig);
-                    const recipients = JSON.parse(savedRecipients); // Start with saved recipients
+                    const recipients = JSON.parse(savedRecipients);
 
                     // Comparison logic for status
                     const now = new Date();
@@ -49,116 +46,63 @@ export default function ConfirmationPage() {
                     const senderAddress = getCookie('wallet_address') || "";
 
                     const status = isStarted ? "em-andamento" : "agendado";
-
-                    // ---------------------------------------------------------
-                    // ON-CHAIN INTEGRATION: Create Vesting Contracts
-                    // ---------------------------------------------------------
-                    if (connected && wallet) {
-                        const connection = new Connection(getRpcUrl(currentNetwork), 'confirmed');
-
-                        // Process each recipient sequentially to ensure signatures
-                        // Note: Mapping over array with async/await requires Promise.all or for...of
-                        const processedRecipients = [];
-
-                        for (const recipient of recipients) {
-                            if (!config.selectedToken?.mint) {
-                                console.error("Token Mint not found in config");
-                                continue;
-                            }
-
-                            try {
-                                console.log(`Creating vesting for ${recipient.walletAddress}...`);
-
-                                // Calculate seconds parameters
-                                const startSeconds = Math.floor(startDate.getTime() / 1000);
-                                const durationSeconds = parseInt(config.vestingDuration) || 0; // Config usually in seconds or needs conversion based on unit?
-                                // Assuming config.vestingDuration is already normalized or we need to normalize based on unit
-                                // Let's check config.selectedTimeUnit. 
-                                // If the previous pages handled conversion, great. If not, we might need logic.
-                                // Usually 'vestingDuration' input is just a number. 'selectedTimeUnit' is 'seconds', 'minutes', 'days'.
-
-                                let durationMult = 1;
-                                switch (config.selectedTimeUnit) {
-                                    case 'minutos': durationMult = 60; break;
-                                    case 'horas': durationMult = 3600; break;
-                                    case 'dias': durationMult = 86400; break;
-                                    case 'semanas': durationMult = 604800; break;
-                                    case 'meses': durationMult = 2592000; break; // approx
-                                    case 'anos': durationMult = 31536000; break;
-                                }
-
-                                const finalDuration = (parseInt(config.vestingDuration) || 0) * durationMult;
-
-                                // Cliff check? 'selectedSchedule' might imply patterns. 
-                                // MVP: Cliff = 0 for linear/standard.
-                                const cliffSeconds = 0;
-
-                                // Amount logic. Recipient amount is usually in UI units (e.g., 10 Tokens).
-                                // Need to convert to Raw Amount based on decimals.
-                                const decimals = config.selectedToken.decimals || 9;
-                                const rawAmount = Math.floor(parseFloat(recipient.amount) * (10 ** decimals));
-
-                                const txResult = await createVestingTransaction({
-                                    wallet,
-                                    connection,
-                                    recipientAddress: recipient.walletAddress,
-                                    mintAddress: config.selectedToken.mint,
-                                    startTime: startSeconds,
-                                    durationSeconds: finalDuration,
-                                    cliffSeconds: cliffSeconds,
-                                    amount: rawAmount,
-                                    decimals: decimals,
-                                    revocable: true, // Configurable? Default true for now.
-                                    network: currentNetwork
-                                });
-
-                                if (txResult.success) {
-                                    processedRecipients.push({
-                                        ...recipient,
-                                        vestingAccount: txResult.vestingAccount,
-                                        vault: txResult.vault,
-                                        txSignature: txResult.signature
-                                    });
-                                } else {
-                                    processedRecipients.push(recipient); // Keep original if failed? Or handle error.
-                                }
-
-                            } catch (err) {
-                                console.error("Failed to create on-chain vesting:", err);
-                                // Don't crash the whole flow, but maybe mark as draft/failed?
-                                // For now, push recipient without vesting data so UI still shows it (as pending/simulated)
-                                processedRecipients.push(recipient);
-                            }
-                        }
-
-                        // Update recipients list with on-chain data
-                        recipients.length = 0;
-                        recipients.push(...processedRecipients);
-                    }
-
-                    // Create a unique ID and set initial status
-                    const newContract = {
-                        ...config,
-                        recipients,
-                        senderAddress, // Store who created it
-                        id: `ct-${Date.now()}`,
-                        createdAt: new Date().toISOString(),
-                        status,
-                        network: currentNetwork,
-                        progress: 0,
-                        unlockedAmount: 0,
-                        totalAmount: recipients.reduce((sum: number, r: any) => sum + (parseFloat(r.amount) || 0), 0)
-                    };
+                    const createdIdsStr = localStorage.getItem("created_contract_ids");
+                    const createdIds = createdIdsStr ? JSON.parse(createdIdsStr) : [];
 
                     // Get existing contracts or init empty list
                     const existingStr = localStorage.getItem("created_contracts");
                     const existing = existingStr ? JSON.parse(existingStr) : [];
 
-                    // Add new contract
-                    localStorage.setItem("created_contracts", JSON.stringify([newContract, ...existing]));
+                    const newContracts = [];
 
-                    // Set as selected contract for immediate viewing
-                    localStorage.setItem("selected_contract", JSON.stringify(newContract));
+                    // Create separate entries for each recipient
+                    for (let i = 0; i < recipients.length; i++) {
+                        const recipient = recipients[i];
+                        const contractIdValue = createdIds[i] || `ct-${Date.now()}-${i}`;
+
+                        // Derivar o PDA real para usar como ID único
+                        let pdaAddress = contractIdValue;
+                        try {
+                            const mintPubkey = new PublicKey(config.selectedToken?.address || config.selectedToken?.mint);
+                            const creatorPubkey = new PublicKey(senderAddress);
+                            const [pda] = PublicKey.findProgramAddressSync(
+                                [
+                                    Buffer.from("vesting"),
+                                    creatorPubkey.toBuffer(),
+                                    mintPubkey.toBuffer(),
+                                    new BN(contractIdValue).toArrayLike(Buffer, "le", 8)
+                                ],
+                                new PublicKey("HMqYLNw1ABgVeFcP2PmwDv6bibcm9y318aTo2g25xQMm")
+                            );
+                            pdaAddress = pda.toBase58();
+                        } catch (e) {
+                            console.error("Erro ao derivar PDA no confirma:", e);
+                        }
+
+                        const contractEntry = {
+                            ...config,
+                            recipients: [recipient], // Apenas este destinatário nesta entrada
+                            senderAddress,
+                            id: pdaAddress,
+                            blockchainId: contractIdValue,
+                            createdAt: new Date().toISOString(),
+                            status,
+                            network: currentNetwork,
+                            progress: 0,
+                            unlockedAmount: 0,
+                            totalAmount: parseFloat(recipient.amount) || 0,
+                            claimedAmount: 0
+                        };
+                        newContracts.push(contractEntry);
+                    }
+
+                    // Save all new contracts
+                    localStorage.setItem("created_contracts", JSON.stringify([...newContracts, ...existing]));
+
+                    // Set the first one as selected contract for immediate viewing
+                    if (newContracts.length > 0) {
+                        localStorage.setItem("selected_contract", JSON.stringify(newContracts[0]));
+                    }
 
                     // SEND EMAILS
                     recipients.forEach((recipient: any) => {

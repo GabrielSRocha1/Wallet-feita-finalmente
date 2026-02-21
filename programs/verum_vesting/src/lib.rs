@@ -1,44 +1,44 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Mint, Token, TokenAccount, Transfer};
 
-// ⚠️ Se o deploy falhar por address mismatch no playground, atualize este ID.
-declare_id!("HMqYLNw1ABgVeFcP2PmwDv6bibcm9y318aTo2g25xQMm");
+declare_id!("HMqYLNw1ABgVeFcP2PmwDv6bibcm9y318aTo2g25xQMm"); // Substituir pelo Program ID real após deploy
 
 #[program]
 pub mod verum_vesting {
     use super::*;
 
-    // 1. Create Vesting
-    // Cria o PDA e transfere tokens do sender para o escrow (Vault)
+    /// Inicializa um novo contrato de vesting e transfere os tokens para o cofre (vault).
     pub fn create_vesting(
         ctx: Context<CreateVesting>,
-        contract_id: u64,
-        total_amount: u64,
         start_time: i64,
-        end_time: i64,
-        vesting_type: VestingType,
+        cliff_seconds: u64,
+        duration_seconds: u64,
+        total_amount: u64,
+        revocable: bool,
     ) -> Result<()> {
-        require!(end_time > start_time, VestingError::InvalidDuration);
-        require!(total_amount > 0, VestingError::TotalAmountZero);
-
-        let vesting_contract = &mut ctx.accounts.vesting_contract;
+        let vesting_account = &mut ctx.accounts.vesting_account;
         
-        vesting_contract.creator = ctx.accounts.creator.key();
-        vesting_contract.beneficiary = ctx.accounts.beneficiary.key();
-        vesting_contract.mint = ctx.accounts.mint.key();
-        vesting_contract.total_amount = total_amount;
-        vesting_contract.released_amount = 0;
-        vesting_contract.start_time = start_time;
-        vesting_contract.end_time = end_time;
-        vesting_contract.vesting_type = vesting_type;
-        vesting_contract.bump = ctx.bumps.vesting_contract;
-        vesting_contract.contract_id = contract_id;
+        vesting_account.sender = ctx.accounts.sender.key();
+        vesting_account.beneficiary = ctx.accounts.beneficiary.key();
+        vesting_account.mint = ctx.accounts.mint.key();
+        vesting_account.vault = ctx.accounts.vault.key();
+        vesting_account.start_time = start_time;
+        vesting_account.cliff_time = start_time + cliff_seconds as i64;
+        vesting_account.duration = duration_seconds;
+        vesting_account.total_amount = total_amount;
+        vesting_account.released_amount = 0;
+        vesting_account.revocable = revocable;
+        vesting_account.revoked = false;
+        vesting_account.bump = ctx.bumps.vault;
 
-        // Transfere tokens do criador para o escrow
+        // A chave pública da carteira de custódia fornecida pelo usuário
+        vesting_account.custody_wallet = "4xV1aDoKevu6Y8cbsfGnqqYkVzduqZ5badoiVoJfmtmc".parse().unwrap();
+
+        // Transfere os tokens da carteira do remetente para o cofre do programa
         let cpi_accounts = Transfer {
             from: ctx.accounts.sender_token_account.to_account_info(),
-            to: ctx.accounts.escrow_wallet.to_account_info(),
-            authority: ctx.accounts.creator.to_account_info(),
+            to: ctx.accounts.vault.to_account_info(),
+            authority: ctx.accounts.sender.to_account_info(),
         };
         let cpi_program = ctx.accounts.token_program.to_account_info();
         let cpi_ctx = CpiContext::new(cpi_program, cpi_accounts);
@@ -47,281 +47,193 @@ pub mod verum_vesting {
         Ok(())
     }
 
-    // 2. Claim Tokens
-    // Calcula liberado e transfere para ATA do beneficiário
-    pub fn claim_tokens(ctx: Context<ClaimTokens>) -> Result<()> {
-        let vesting_contract = &mut ctx.accounts.vesting_contract;
+    pub fn release(ctx: Context<Release>) -> Result<()> {
+        let vesting_account = &mut ctx.accounts.vesting_account;
         let current_time = Clock::get()?.unix_timestamp;
 
-        // 1. Cálculo do montante vestado até agora
-        let vested_amount = calculate_vested_amount(
+        let vested = calculate_vested_amount(
             current_time,
-            vesting_contract.start_time,
-            vesting_contract.end_time,
-            vesting_contract.total_amount,
-            &vesting_contract.vesting_type,
+            vesting_account.start_time,
+            vesting_account.cliff_time,
+            vesting_account.duration,
+            vesting_account.total_amount,
+            vesting_account.revoked,
         );
 
-        // 2. Cálculo do valor disponível para saque (Vestado - Já Liberado)
-        let releasable = vested_amount.saturating_sub(vesting_contract.released_amount);
+        let releasable = vested.checked_sub(vesting_account.released_amount).unwrap();
         require!(releasable > 0, VestingError::NothingToRelease);
 
-        // 3. Atualização do estado global do contrato
-        vesting_contract.released_amount = vesting_contract.released_amount.checked_add(releasable).unwrap();
+        vesting_account.released_amount += releasable;
 
-        // 4. Preparação da assinatura do PDA
-        // O Vault (escrow_wallet) pertence ao Programa, com autoridade delegada ao PDA do contrato.
-        let beneficiary_key = vesting_contract.beneficiary;
-        let mint_key = vesting_contract.mint;
-        let id_bytes = vesting_contract.contract_id.to_le_bytes();
-        let bump = vesting_contract.bump;
-
+        // Transferência do cofre para o beneficiário usando assinatura do PDA
         let seeds = &[
-            b"vesting",
-            beneficiary_key.as_ref(),
-            mint_key.as_ref(),
-            id_bytes.as_ref(),
-            &[bump],
+            b"vault",
+            vesting_account.to_account_info().key.as_ref(),
+            &[vesting_account.bump],
         ];
         let signer = &[&seeds[..]];
 
-        // 5. Transferência CPI (Cross-Program Invocation)
         let cpi_accounts = Transfer {
-            from: ctx.accounts.escrow_wallet.to_account_info(),
+            from: ctx.accounts.vault.to_account_info(),
             to: ctx.accounts.beneficiary_token_account.to_account_info(),
-            authority: vesting_contract.to_account_info(),
+            authority: ctx.accounts.vault.to_account_info(),
         };
         let cpi_program = ctx.accounts.token_program.to_account_info();
         let cpi_ctx = CpiContext::new_with_signer(cpi_program, cpi_accounts, signer);
-        
         token::transfer(cpi_ctx, releasable)?;
 
         Ok(())
     }
 
-    // 3. Update Beneficiary
-    // Requer assinatura do criador
-    pub fn update_beneficiary(ctx: Context<UpdateBeneficiary>) -> Result<()> {
-        let vesting_contract = &mut ctx.accounts.vesting_contract;
-        require!(ctx.accounts.creator.key() == vesting_contract.creator, VestingError::Unauthorized);
+    pub fn revoke(ctx: Context<Revoke>) -> Result<()> {
+        let vesting_account = &mut ctx.accounts.vesting_account;
         
-        vesting_contract.beneficiary = ctx.accounts.new_beneficiary.key();
-        Ok(())
-    }
+        // Apenas o remetente original ou a carteira de custódia podem revogar
+        require!(
+            ctx.accounts.authority.key() == vesting_account.sender || 
+            ctx.accounts.authority.key() == vesting_account.custody_wallet,
+            VestingError::Unauthorized
+        );
+        
+        require!(vesting_account.revocable, VestingError::NotRevocable);
+        require!(!vesting_account.revoked, VestingError::AlreadyRevoked);
 
-    // 4. Cancel Vesting
-    // Retorna tokens não liberados ao criador
-    pub fn cancel_vesting(ctx: Context<CancelVesting>) -> Result<()> {
-        let vesting_contract = &mut ctx.accounts.vesting_contract;
-        require!(ctx.accounts.creator.key() == vesting_contract.creator, VestingError::Unauthorized);
+        let current_time = Clock::get()?.unix_timestamp;
+        let vested = calculate_vested_amount(
+            current_time,
+            vesting_account.start_time,
+            vesting_account.cliff_time,
+            vesting_account.duration,
+            vesting_account.total_amount,
+            false,
+        );
 
-        // Opcional: Se quiser permitir saque do que JÁ vestou antes de cancelar, chamaria claim logic aqui.
-        // Assumindo "cancelar" = parar tudo e devolver restante do escrow.
-        
-        let escrow_balance = ctx.accounts.escrow_wallet.amount;
-        
-        if escrow_balance > 0 {
-             let beneficiary_key = vesting_contract.beneficiary;
-             let mint_key = vesting_contract.mint;
-             let id_bytes = vesting_contract.contract_id.to_le_bytes();
-             let bump = vesting_contract.bump;
+        let refund_amount = vesting_account.total_amount.checked_sub(vested).unwrap();
+        vesting_account.revoked = true;
 
-             let seeds = &[
-                b"vesting",
-                beneficiary_key.as_ref(),
-                mint_key.as_ref(),
-                id_bytes.as_ref(),
-                &[bump],
-            ];
-            let signer = &[&seeds[..]];
+        // Transfere o restante de volta para o remetente
+        let seeds = &[
+            b"vault",
+            vesting_account.to_account_info().key.as_ref(),
+            &[vesting_account.bump],
+        ];
+        let signer = &[&seeds[..]];
 
-            let cpi_accounts = Transfer {
-                from: ctx.accounts.escrow_wallet.to_account_info(),
-                to: ctx.accounts.creator_token_account.to_account_info(),
-                authority: vesting_contract.to_account_info(),
-            };
-            let cpi_program = ctx.accounts.token_program.to_account_info();
-            let cpi_ctx = CpiContext::new_with_signer(cpi_program, cpi_accounts, signer);
-            token::transfer(cpi_ctx, escrow_balance)?;
-        }
-        
-        // Poderia fechar a conta (close_account) se desejado, mas vamos manter o registro marcar como zero
-        vesting_contract.total_amount = vesting_contract.released_amount; // Trava
-        
+        let cpi_accounts = Transfer {
+            from: ctx.accounts.vault.to_account_info(),
+            to: ctx.accounts.refund_token_account.to_account_info(),
+            authority: ctx.accounts.vault.to_account_info(),
+        };
+        let cpi_program = ctx.accounts.token_program.to_account_info();
+        let cpi_ctx = CpiContext::new_with_signer(cpi_program, cpi_accounts, signer);
+        token::transfer(cpi_ctx, refund_amount)?;
+
         Ok(())
     }
 }
-
-// -------------------------------------------------------------------------
-// LOGIC HELPERS
-// -------------------------------------------------------------------------
 
 fn calculate_vested_amount(
     current_time: i64,
     start: i64,
-    end: i64,
+    cliff: i64,
+    duration: u64,
     total: u64,
-    vesting_type: &VestingType,
+    is_revoked: bool,
 ) -> u64 {
-    if current_time < start {
-        return 0;
-    }
-    if current_time >= end {
+    if is_revoked || current_time >= start + duration as i64 {
         return total;
     }
-
-    match vesting_type {
-        VestingType::Linear => {
-            let duration = end.checked_sub(start).unwrap() as u64;
-            let elapsed = current_time.checked_sub(start).unwrap() as u64;
-            (total as u128 * elapsed as u128 / duration as u128) as u64
-        },
-        VestingType::Cliff => {
-            // Exemplo Cliff: 0 até o final, tudo no final?
-            // Ou Cliff no meio? Assumindo "Cliff" = tudo no final para este enum simples
-            0 
-        }
+    if current_time < cliff {
+        return 0;
     }
+    let elapsed = current_time.checked_sub(start).unwrap() as u64;
+    (total * elapsed) / duration
 }
-
-// -------------------------------------------------------------------------
-// DATA STRUCTURES
-// -------------------------------------------------------------------------
-
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq)]
-pub enum VestingType {
-    Linear,
-    Cliff,
-}
-
-#[account]
-pub struct VestingContract {
-    pub creator: Pubkey, // Necessário para cancel e update auth
-    pub beneficiary: Pubkey,
-    pub mint: Pubkey,
-    pub total_amount: u64,
-    pub released_amount: u64,
-    pub start_time: i64,
-    pub end_time: i64,
-    pub contract_id: u64, // Necessário para seeds
-    pub vesting_type: VestingType,
-    pub bump: u8,
-}
-
-impl VestingContract {
-    // Espaço: Discriminator (8) + Pubkey(32)*3 + u64*4 + i64*2 + Enum(1) + u8(1)
-    pub const LEN: usize = 8 + 32 + 32 + 32 + 8 + 8 + 8 + 8 + 8 + 1 + 1;
-}
-
-#[error_code]
-pub enum VestingError {
-    #[msg("Nada para liberar no momento.")]
-    NothingToRelease,
-    #[msg("Não autorizado.")]
-    Unauthorized,
-    #[msg("A duração do contrato é inválida (fim deve ser após o início).")]
-    InvalidDuration,
-    #[msg("O montante total deve ser maior que zero.")]
-    TotalAmountZero,
-}
-
-// -------------------------------------------------------------------------
-// CONTEXTS
-// -------------------------------------------------------------------------
 
 #[derive(Accounts)]
-#[instruction(contract_id: u64)]
 pub struct CreateVesting<'info> {
-    #[account(
-        init,
-        payer = creator,
-        seeds = [
-            b"vesting",
-            beneficiary.key().as_ref(),
-            mint.key().as_ref(),
-            &contract_id.to_le_bytes()
-        ],
-        bump,
-        space = VestingContract::LEN
-    )]
-    pub vesting_contract: Account<'info, VestingContract>,
-    
     #[account(mut)]
-    pub creator: Signer<'info>,
-    
-    /// CHECK: Apenas endereço para seed
-    pub beneficiary: UncheckedAccount<'info>,
-    
-    pub mint: Account<'info, Mint>,
-
-    // Escrow owned by the Vesting Contract PDA
-    #[account(
-        init,
-        payer = creator,
-        token::mint = mint,
-        token::authority = vesting_contract,
-        seeds = [b"escrow", vesting_contract.key().as_ref()],
-        bump
-    )]
-    pub escrow_wallet: Account<'info, TokenAccount>,
-
+    pub sender: Signer<'info>,
     #[account(mut)]
     pub sender_token_account: Account<'info, TokenAccount>,
-
+    /// CHECK: Apenas endereço
+    pub beneficiary: UncheckedAccount<'info>,
+    pub mint: Account<'info, Mint>,
+    #[account(
+        init,
+        payer = sender,
+        space = 8 + VestingAccount::LEN
+    )]
+    pub vesting_account: Account<'info, VestingAccount>,
+    #[account(
+        init,
+        payer = sender,
+        seeds = [b"vault", vesting_account.key().as_ref()],
+        bump,
+        token::mint = mint,
+        token::authority = vault,
+    )]
+    pub vault: Account<'info, TokenAccount>,
     pub system_program: Program<'info, System>,
     pub token_program: Program<'info, Token>,
     pub rent: Sysvar<'info, Rent>,
 }
 
 #[derive(Accounts)]
-    pub struct ClaimTokens<'info> {
+pub struct Release<'info> {
+    /// CHECK: Safe because we only transfer TO this account
     #[account(mut)]
-    pub vesting_contract: Account<'info, VestingContract>,
-    
-    #[account(
-        mut,
-        seeds = [b"escrow", vesting_contract.key().as_ref()],
-        bump
-    )]
-    pub escrow_wallet: Account<'info, TokenAccount>,
-
-    #[account(
-        mut,
-        constraint = beneficiary_token_account.owner == vesting_contract.beneficiary
-    )]
+    pub beneficiary: UncheckedAccount<'info>,
+    #[account(mut)]
     pub beneficiary_token_account: Account<'info, TokenAccount>,
-    
-    pub token_program: Program<'info, Token>,
-
+    #[account(mut, has_one = vault, has_one = beneficiary)]
+    pub vesting_account: Account<'info, VestingAccount>,
     #[account(mut)]
-    pub signer: Signer<'info>, // Quem paga a taxa da transação (pode ser o beneficiário ou o bot de automação)
+    pub vault: Account<'info, TokenAccount>,
+    pub token_program: Program<'info, Token>,
 }
 
 #[derive(Accounts)]
-pub struct UpdateBeneficiary<'info> {
+pub struct Revoke<'info> {
+    pub authority: Signer<'info>,
+    #[account(mut, has_one = vault)]
+    pub vesting_account: Account<'info, VestingAccount>,
     #[account(mut)]
-    pub vesting_contract: Account<'info, VestingContract>,
-    
+    pub vault: Account<'info, TokenAccount>,
     #[account(mut)]
-    pub creator: Signer<'info>,
-    
-    /// CHECK: Novo beneficiário
-    pub new_beneficiary: UncheckedAccount<'info>,
+    pub refund_token_account: Account<'info, TokenAccount>,
+    pub token_program: Program<'info, Token>,
 }
 
-#[derive(Accounts)]
-pub struct CancelVesting<'info> {
-    #[account(mut)]
-    pub vesting_contract: Account<'info, VestingContract>,
-    
-    #[account(mut)]
-    pub creator: Signer<'info>,
-    
-    #[account(mut)]
-    pub escrow_wallet: Account<'info, TokenAccount>,
-    
-    #[account(mut)]
-    pub creator_token_account: Account<'info, TokenAccount>,
-    
-    pub token_program: Program<'info, Token>,
+#[account]
+pub struct VestingAccount {
+    pub sender: Pubkey,
+    pub beneficiary: Pubkey,
+    pub custody_wallet: Pubkey,
+    pub mint: Pubkey,
+    pub vault: Pubkey,
+    pub start_time: i64,
+    pub cliff_time: i64,
+    pub duration: u64,
+    pub total_amount: u64,
+    pub released_amount: u64,
+    pub revocable: bool,
+    pub revoked: bool,
+    pub bump: u8,
+}
+
+impl VestingAccount {
+    pub const LEN: usize = 32 + 32 + 32 + 32 + 32 + 8 + 8 + 8 + 8 + 8 + 1 + 1 + 1;
+}
+
+#[error_code]
+pub enum VestingError {
+    #[msg("Ainda não há tokens para liberar.")]
+    NothingToRelease,
+    #[msg("Este contrato não é revogável.")]
+    NotRevocable,
+    #[msg("Este contrato já foi revogado.")]
+    AlreadyRevoked,
+    #[msg("Operação não autorizada.")]
+    Unauthorized,
 }

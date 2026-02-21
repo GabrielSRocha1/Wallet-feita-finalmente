@@ -11,14 +11,39 @@ import { useWallet } from "@/contexts/WalletContext";
 import { useNetwork } from "@/contexts/NetworkContext";
 import NetworkSelector from "@/components/NetworkSelector";
 import { parseVestingDate } from "@/utils/date-utils";
-import { Connection } from "@solana/web3.js";
-import { getRpcUrl } from "@/utils/solana-config";
-import { releaseTransaction } from "@/utils/verum-contract";
+import { Transaction, PublicKey, SystemProgram } from '@solana/web3.js';
+import { getAssociatedTokenAddress, TOKEN_PROGRAM_ID, createAssociatedTokenAccountIdempotentInstruction } from '@solana/spl-token';
+import { Program, AnchorProvider, Idl } from '@project-serum/anchor';
+import { detectTokenProgram } from "@/utils/tokenProgram";
+
+const TOKEN_2022_PROGRAM_ID = new PublicKey("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb");
+
+const PROGRAM_ID = new PublicKey("HMqYLNw1ABgVeFcP2PmwDv6bibcm9y318aTo2g25xQMm");
+
+const IDL: Idl = {
+    "version": "0.1.0",
+    "name": "verum_vesting",
+    "instructions": [
+        {
+            "name": "claimTokens",
+            "accounts": [
+                { "name": "vestingContract", "isMut": true, "isSigner": false },
+                { "name": "escrowWallet", "isMut": true, "isSigner": false },
+                { "name": "beneficiaryTokenAccount", "isMut": true, "isSigner": false },
+                { "name": "beneficiary", "isMut": false, "isSigner": false },
+                { "name": "mint", "isMut": false, "isSigner": false },
+                { "name": "tokenProgram", "isMut": false, "isSigner": false }
+            ],
+            "args": []
+        }
+    ]
+};
+
 
 export default function VestingContractDetailsPage() {
     const router = useRouter();
-    const { network: currentNetwork } = useNetwork();
-    const { disconnectWallet, wallet, connected } = useWallet();
+    const { connection, network: currentNetwork } = useNetwork();
+    const { disconnectWallet, publicKey, wallet } = useWallet();
     const [isWalletDropdownOpen, setIsWalletDropdownOpen] = useState(false);
     const [isChangeRecipientModalOpen, setIsChangeRecipientModalOpen] = useState(false);
     const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
@@ -101,38 +126,7 @@ export default function VestingContractDetailsPage() {
                 setContractData((prev: any) => prev ? { ...prev } : null);
             }
         }, 5000); // Check and refresh every 5s for precision
-        return () => clearInterval(interval);
-    }, [contractData, currentNetwork]);
 
-    // -------------------------------------------------------------------------
-    // AUTO-CHECK: Check for unclaimed tokens every 30s as requested
-    // -------------------------------------------------------------------------
-    useEffect(() => {
-        const checkUnclaimed = setInterval(() => {
-            if (!contractData) return;
-
-            const stats = getDynamicVesting();
-            const claimed = contractData.claimedAmount || 0;
-            const available = stats.unlocked - claimed;
-
-            if (available > 0.0001) { // Threshold to notify
-                console.log(`[Auto-Check] Tokens available: ${available}`);
-                setToastMessage(`Você tem ${available.toFixed(4)} ${contractData.tokenSymbol} disponíveis para saque!`);
-                setShowToast(true);
-                setTimeout(() => setShowToast(false), 5000);
-
-                // If auto-claim logic was possible without signature (backend only), we would call it here.
-                // For client-side, we notify.
-            }
-        }, 30000); // 30 seconds
-
-        return () => clearInterval(checkUnclaimed);
-    }, [contractData]); // Re-run if contractData changes (e.g. claimed amount updates)
-
-    // -------------------------------------------------------------------------
-    // LOAD CONTRACT: Initial loading from localStorage
-    // -------------------------------------------------------------------------
-    useEffect(() => {
         // 1. Try to load specific selected contract
         const selectedStr = localStorage.getItem("selected_contract");
         const savedConfig = localStorage.getItem("contract_draft");
@@ -152,8 +146,8 @@ export default function VestingContractDetailsPage() {
 
                 if (contract && contractNetwork !== currentNetwork) {
                     console.warn(`[Network] Contract network (${contractNetwork}) != Current network (${currentNetwork}). Redirecting...`);
-                    // router.replace('/home-cliente'); // Avoid immediate loop, maybe warn instead or handle better
-                    // return;
+                    router.replace('/home-cliente');
+                    return;
                 }
 
                 if (contract) {
@@ -165,7 +159,7 @@ export default function VestingContractDetailsPage() {
                         status: contract.status || "Bloqueado",
                         unlockedAmount: contract.unlockedAmount || 0,
                         claimedAmount: contract.claimedAmount || 0,
-                        mintAddress: contract.selectedToken?.mintAddress || "DmSnH6gmikCc4s4oWuRGXZXr8wVfrbykWfby",
+                        mintAddress: contract.selectedToken?.mint || contract.mintAddress || "DmSnH6gmikCc4s4oWuRGXZXr8wVfrbykWfby",
                         senderAddress: contract.senderAddress || connectedAddress || "CtauGKgV4jmVyFQ1SWcGjy3s5jppZt",
                         recipientAddress: contract.recipients?.[0]?.walletAddress || "Indefinido",
                         vestingStartDate: contract.vestingStartDate
@@ -180,8 +174,8 @@ export default function VestingContractDetailsPage() {
                 const configNetwork = config.network || 'devnet'; // Check draft network if applicable
 
                 if (configNetwork !== currentNetwork) {
-                    // router.replace('/home-cliente');
-                    // return;
+                    router.replace('/home-cliente');
+                    return;
                 }
                 const recipients = JSON.parse(savedRecipients);
 
@@ -347,29 +341,131 @@ export default function VestingContractDetailsPage() {
         setIsClaiming(true);
 
         try {
-            // ON-CHAIN RELEASE Check
-            if (connected && wallet && contractData.vestingAccount) {
-                const connection = new Connection(getRpcUrl(currentNetwork), 'confirmed');
-                await releaseTransaction(wallet, connection, contractData.vestingAccount, currentNetwork);
-                // Warning: releaseTransaction throws on error based on my implementation
-            } else {
-                // Fallback Simulation Delay
-                await new Promise(resolve => setTimeout(resolve, 2000));
+            if (!publicKey || !wallet) {
+                throw new Error("Carteira não conectada.");
             }
 
+            const beneficiaryPubkey = new PublicKey(publicKey);
+
+            // Suporta contract.id ou usa um mock/pda default caso não seja pubkey válido
+            let vestingContractPubkey: PublicKey;
+            try {
+                vestingContractPubkey = new PublicKey(contractData.id);
+            } catch (e) {
+                throw new Error("ID do contrato inválido ou não suportado para reivindicação on-chain.");
+            }
+
+            const mintPubkey = new PublicKey(contractData.mintAddress);
+
+            // Detectar qual programa de token usar (SPL ou Token-2022)
+            const tokenProgramId = await detectTokenProgram(connection, contractData.mintAddress);
+
+
+            // Fetch Token Account do beneficiário
+            const beneficiaryTokenAccount = await getAssociatedTokenAddress(
+                mintPubkey,
+                beneficiaryPubkey,
+                false,
+                tokenProgramId
+            );
+
+            // Escrow PDA Wallet
+            const [escrowWallet] = PublicKey.findProgramAddressSync(
+                [Buffer.from("escrow"), vestingContractPubkey.toBuffer()],
+                PROGRAM_ID
+            );
+
+            // Provider e Program do Anchor
+            const provider = new AnchorProvider(connection, wallet as any, { commitment: 'confirmed' });
+            const program = new Program(IDL, PROGRAM_ID, provider);
+
+            console.log("Executando claim_tokens on-chain...", {
+                vestingContract: vestingContractPubkey.toBase58(),
+                escrowWallet: escrowWallet.toBase58(),
+                beneficiaryTokenAccount: beneficiaryTokenAccount.toBase58(),
+                beneficiary: beneficiaryPubkey.toBase58()
+            });
+
+            // Constrói a transação
+            const tx = new Transaction();
+
+            // Garantir que a ATA do beneficiário existe (Idempotent)
+            tx.add(
+                createAssociatedTokenAccountIdempotentInstruction(
+                    beneficiaryPubkey,
+                    beneficiaryTokenAccount,
+                    beneficiaryPubkey,
+                    mintPubkey,
+                    tokenProgramId
+                )
+            );
+
+            // Adiciona instrução de claim
+            const claimIx = await program.methods.claimTokens()
+                .accounts({
+                    vestingContract: vestingContractPubkey,
+                    escrowWallet: escrowWallet,
+                    beneficiaryTokenAccount: beneficiaryTokenAccount,
+                    beneficiary: beneficiaryPubkey,
+                    mint: mintPubkey,          // ← obrigatório: contrato valida owner do mint
+                    tokenProgram: tokenProgramId, // detectado dinamicamente (SPL ou Token-2022)
+                })
+                .instruction();
+
+            tx.add(claimIx);
+
+            // Adiciona informações de rede e fee payer
+            const { blockhash } = await connection.getLatestBlockhash('confirmed');
+            tx.recentBlockhash = blockhash;
+            tx.feePayer = beneficiaryPubkey;
+
+            // 🧪 SIMULAÇÃO — revela erros reais antes de enviar
+            const simulation = await connection.simulateTransaction(tx);
+            console.log('[contrato-detalhes] simulação:', JSON.stringify(simulation, null, 2));
+            if (simulation.value.err) {
+                console.error('[contrato-detalhes] ❌ Erro na simulação:', simulation.value.err);
+                console.error('[contrato-detalhes] Logs do programa:', simulation.value.logs);
+                throw new Error(`Simulação falhou: ${JSON.stringify(simulation.value.err)}\n\nLogs:\n${simulation.value.logs?.join('\n')}`);
+            }
+
+            // Envia a transação
+            let signature = "";
+            if (wallet.sendTransaction) {
+                signature = await wallet.sendTransaction(tx, connection);
+            } else if (wallet.signAndSendTransaction) {
+                const { signature: sig } = await wallet.signAndSendTransaction(tx);
+                signature = sig;
+            } else {
+                throw new Error("Sua carteira não suporta envio de transação (sendTransaction não encontrado).");
+            }
+
+            console.log("Transação enviada:", signature);
+            setToastMessage("Confirmando transação na rede...");
+            setShowToast(true);
+
+            await connection.confirmTransaction(signature, 'confirmed');
+
+            // Atualiza o estado local do UI apenas após sucesso on-chain
             updateContract({
                 claimedAmount: stats.unlocked
             });
 
-            setToastMessage(`${availableToClaim.toFixed(4)} ${contractData.tokenSymbol} reivindicados!`);
+            setToastMessage(`${availableToClaim.toFixed(4)} ${contractData.tokenSymbol} reivindicados com sucesso na Solana!`);
             setShowToast(true);
-            setTimeout(() => setShowToast(false), 2000);
+            setTimeout(() => setShowToast(false), 3000);
 
-        } catch (error) {
-            console.error("Erro ao reivindicar:", error);
-            setToastMessage("Falha ao reivindicar on-chain.");
+        } catch (error: any) {
+            console.error("Erro no Claim On-Chain:", error);
+            const msg = error.message || String(error);
+            if (msg.includes("inválido")) {
+                setToastMessage("Erro: Este contrato é apenas uma simulação no frontend e não possui uma conta Vesting real.");
+            } else if (msg.includes("rejected") || msg.includes("User rejected")) {
+                setToastMessage("Transação cancelada pelo usuário.");
+            } else {
+                setToastMessage(`Erro: ${msg}`);
+            }
             setShowToast(true);
-            setTimeout(() => setShowToast(false), 2000);
+            setTimeout(() => setShowToast(false), 3000);
         } finally {
             setIsClaiming(false);
         }
@@ -489,7 +585,7 @@ export default function VestingContractDetailsPage() {
                             <span>{dynamicStats.unlocked.toLocaleString(undefined, { maximumFractionDigits: 2 })} {contractData.tokenSymbol}</span>
                         </div>
                         <div className="flex items-center gap-2 text-[10px] text-zinc-500">
-                            <span>{contractData.totalAmount} {contractData.tokenSymbol} <span className="text-[#EAB308]">({formatAddress(contractData.senderAddress)})</span></span>
+                            <span>{contractData.totalAmount} {contractData.tokenSymbol}</span>
                             <span>•</span>
                             <span className="flex items-center gap-1">
                                 CHAIN
@@ -515,11 +611,11 @@ export default function VestingContractDetailsPage() {
                     <div className="space-y-2">
                         <h1 className="text-xl font-bold">{contractData.tokenName} - Bloqueio por token</h1>
                         <div
-                            onClick={() => copyToClipboard("SimulatedContractID123", 'Contrato ID')}
+                            onClick={() => copyToClipboard(contractData.id, 'Contrato ID')}
                             className="flex items-center gap-2 text-sm font-medium text-zinc-300 cursor-pointer hover:text-[#EAB308] transition-colors"
                         >
                             <span className="material-symbols-outlined text-sm">content_copy</span>
-                            <span>7xKX...RrXFk</span>
+                            <span>{formatAddress(contractData.id)}</span>
                         </div>
                     </div>
 
@@ -583,16 +679,15 @@ export default function VestingContractDetailsPage() {
 
                     <div className="grid grid-cols-3 gap-2 py-4">
                         <div className="space-y-1">
-                            <div className="text-zinc-500 text-[9px] font-bold leading-tight uppercase">Endereço da casa da moeda</div>
+                            <div className="text-zinc-500 text-[9px] font-bold leading-tight uppercase">Endereço Token</div>
                             <div className="flex items-center gap-1 text-xs">
-                                <span className="font-bold">{contractData.tokenSymbol}</span>
                                 <span
-                                    onClick={() => copyToClipboard(contractData.mintAddress, 'Endereço da casa da moeda')}
+                                    onClick={() => copyToClipboard(contractData.mintAddress, 'Endereço Token')}
                                     className="material-symbols-outlined text-xs cursor-pointer hover:text-[#EAB308] transition-colors"
                                 >
                                     content_copy
                                 </span>
-                                <span className="text-zinc-400 truncate max-w-[80px]">{formatAddress(contractData.mintAddress)}</span>
+                                <span className="text-zinc-400 truncate max-w-[120px]">{contractData.mintAddress}</span>
                             </div>
                         </div>
                         <div className="space-y-1">

@@ -1,3 +1,4 @@
+export const runtime = "nodejs";
 
 import { NextResponse } from 'next/server';
 import nodemailer from 'nodemailer';
@@ -14,18 +15,18 @@ export async function POST(req: Request) {
         // NOTE: In a real production environment, you would use Environment Variables for these credentials
         // e.g. process.env.SMTP_HOST, process.env.SMTP_USER, etc.
         const transporter = nodemailer.createTransport({
-            host: "smtp.example.com", // REPLACE WITH REAL SERVER
-            port: 587,
-            secure: false, // true for 465, false for other ports
+            host: process.env.SMTP_HOST || "smtp.example.com",
+            port: parseInt(process.env.SMTP_PORT || "587"),
+            secure: process.env.SMTP_SECURE === "true", // true for 465, false for other ports
             auth: {
-                user: "user@example.com", // REPLACE WITH REAL USER
-                pass: "password", // REPLACE WITH REAL PASSWORD
+                user: process.env.SMTP_USER || "user@example.com",
+                pass: process.env.SMTP_PASS || "password",
             },
         });
 
         // Email Content
         const mailOptions = {
-            from: '"Verum Vesting" <no-reply@verumvesting.com>',
+            from: '"Verum Vesting" <smartcontract@mastter.digital>',
             to: recipientEmail,
             subject: `Seu Contrato Vesting foi Criado: ${contractData.tokenName} - ${contractData.tokenSymbol}`,
             html: `
@@ -65,20 +66,24 @@ export async function POST(req: Request) {
         };
 
         // Attempt to send email
-        // Since we don't have real credentials, we'll log the attempt and 'simulate' success so the app doesn't crash
         try {
-            // await transporter.sendMail(mailOptions); // Uncomment this when real credentials are provided
-            console.log("---------------------------------------------------");
-            console.log("MOCK EMAIL SENT TO:", recipientEmail);
-            console.log("SUBJECT:", mailOptions.subject);
-            console.log("---------------------------------------------------");
+            // Only send if we have basic env vars configured, otherwise just log
+            if (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) {
+                await transporter.sendMail(mailOptions);
+                console.log("REAL EMAIL SENT TO:", recipientEmail);
+            } else {
+                console.log("---------------------------------------------------");
+                console.log("MOCK EMAIL SENT TO:", recipientEmail);
+                console.log("SUBJECT:", mailOptions.subject);
+                console.log("WARNING: To send real emails, set SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS in your .env file.");
+                console.log("---------------------------------------------------");
+            }
         } catch (emailError) {
             console.error("Failed to send email via transporter:", emailError);
-            // We still return success to the frontend to avoid blocking the user flow, 
-            // but log the error on the server.
+            // We still return success to the frontend to avoid blocking the flow, but log the error
         }
 
-        return NextResponse.json({ success: true, message: 'Email processado (Simulação)' });
+        return NextResponse.json({ success: true, message: 'Email processado' });
 
     } catch (error) {
         console.error('Error in send-email API:', error);
