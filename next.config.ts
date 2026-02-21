@@ -1,8 +1,13 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
   // reactCompiler: true,
+  serverExternalPackages: [
+    "@coral-xyz/anchor",
+    "@project-serum/anchor",
+    "@solana/web3.js",
+    "@solana/spl-token",
+  ],
   images: {
     remotePatterns: [
       {

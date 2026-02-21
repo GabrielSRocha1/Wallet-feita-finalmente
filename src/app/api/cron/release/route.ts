@@ -1,28 +1,21 @@
 export const runtime = "nodejs";
 
-import { Connection, Keypair, PublicKey, Transaction } from '@solana/web3.js';
-import { Program, AnchorProvider, NodeWallet, Idl, BN } from '@coral-xyz/anchor';
 import { NextRequest, NextResponse } from 'next/server';
-import { getAssociatedTokenAddress, createAssociatedTokenAccountIdempotentInstruction } from '@solana/spl-token';
 
-const PROGRAM_ID = new PublicKey("HMqYLNw1ABgVeFcP2PmwDv6bibcm9y318aTo2g25xQMm");
-const RPC_URL = process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.devnet.solana.com';
-const RELAYER_PRIVATE_KEY = process.env.RELAYER_PRIVATE_KEY;
-
-// IDL atualizado com base no lib.rs mais recente
-const IDL: Idl = {
+// O IDL agora usa 'writable' em vez de 'isMut' para compatibilidade com versões novas do Anchor
+const IDL: any = {
     "version": "0.1.0",
     "name": "verum_vesting",
     "instructions": [
         {
             "name": "claimTokens",
             "accounts": [
-                { "name": "vestingContract", "isMut": true, "isSigner": false },
-                { "name": "escrowWallet", "isMut": true, "isSigner": false },
-                { "name": "beneficiaryTokenAccount", "isMut": true, "isSigner": false },
-                { "name": "beneficiary", "isMut": false, "isSigner": false },
-                { "name": "tokenProgram", "isMut": false, "isSigner": false },
-                { "name": "token2022Program", "isMut": false, "isSigner": false }
+                { "name": "vestingContract", "writable": true, "signer": false },
+                { "name": "escrowWallet", "writable": true, "signer": false },
+                { "name": "beneficiaryTokenAccount", "writable": true, "signer": false },
+                { "name": "beneficiary", "writable": false, "signer": false },
+                { "name": "tokenProgram", "writable": false, "signer": false },
+                { "name": "token2022Program", "writable": false, "signer": false }
             ],
             "args": []
         }
@@ -61,22 +54,48 @@ const IDL: Idl = {
 };
 
 export async function GET(request: NextRequest) {
+    const RELAYER_PRIVATE_KEY = process.env.RELAYER_PRIVATE_KEY;
     if (!RELAYER_PRIVATE_KEY) {
         return NextResponse.json({ error: 'RELAYER_PRIVATE_KEY not configured' }, { status: 500 });
     }
 
     try {
+        // Importações dinâmicas para evitar erro de build do Turbopack
+        const { Connection, Keypair, PublicKey, Transaction } = await import('@solana/web3.js');
+        const { Program, AnchorProvider } = await import('@coral-xyz/anchor');
+        const { getAssociatedTokenAddress, createAssociatedTokenAccountIdempotentInstruction } = await import('@solana/spl-token');
+
+        const PROGRAM_ID = new PublicKey("HMqYLNw1ABgVeFcP2PmwDv6bibcm9y318aTo2g25xQMm");
+        const RPC_URL = process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.devnet.solana.com';
+
         const connection = new Connection(RPC_URL, 'confirmed');
         const relayerKeypair = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(RELAYER_PRIVATE_KEY)));
-        const wallet = new NodeWallet(relayerKeypair);
-        const provider = new AnchorProvider(connection, wallet, { commitment: 'confirmed' });
-        const program = new Program(IDL, PROGRAM_ID, provider);
+
+        // Mock de Wallet para evitar NodeWallet não exportado
+        const wallet = {
+            publicKey: relayerKeypair.publicKey,
+            signTransaction: async (tx: any) => {
+                tx.partialSign(relayerKeypair);
+                return tx;
+            },
+            signAllTransactions: async (txs: any[]) => {
+                return txs.map(tx => {
+                    tx.partialSign(relayerKeypair);
+                    return tx;
+                });
+            }
+        };
+
+        const provider = new AnchorProvider(connection, wallet as any, { commitment: 'confirmed' });
+        // Na v0.30+, o Program recebe idl e provider. O programId deve estar no IDL ou passado separadamente se necessário
+        const program = new Program(IDL, provider);
 
         const splTokenProgramId = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
         const token2022ProgramId = new PublicKey("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb");
 
         console.log("[Relayer] Buscando contratos de vesting...");
-        const vestingAccounts = await program.account.vestingContract.all();
+        // Usando as any para evitar erro de tipo no account namespace
+        const vestingAccounts = await (program.account as any).vestingContract.all();
         console.log(`[Relayer] Encontrados ${vestingAccounts.length} contratos.`);
 
         const results = [];
@@ -87,17 +106,14 @@ export async function GET(request: NextRequest) {
                 const contract = record.account as any;
                 const contractPubkey = record.publicKey;
 
-                // 1. Filtros básicos
                 if (contract.isCancelled || contract.releasedAmount.gte(contract.totalAmount)) {
                     continue;
                 }
 
-                // 2. Verificar se há algo para liberar (simulação simplificada do cálculo do contrato)
                 if (currentTime < contract.startTime.toNumber()) {
                     continue;
                 }
 
-                // 3. Preparar contas para claim
                 const tokenProgramId = contract.isToken2022 ? token2022ProgramId : splTokenProgramId;
 
                 const beneficiaryTokenAccount = await getAssociatedTokenAddress(
@@ -114,13 +130,10 @@ export async function GET(request: NextRequest) {
 
                 console.log(`[Relayer] Processando claim para: ${contractPubkey.toBase58()}`);
 
-                // 4. Montar a transação
                 const transaction = new Transaction();
-
-                // Garantir que a ATA do beneficiário existe (Idempotent)
                 transaction.add(
                     createAssociatedTokenAccountIdempotentInstruction(
-                        relayerKeypair.publicKey, // Relayer paga o rent da ATA se necessário
+                        relayerKeypair.publicKey,
                         beneficiaryTokenAccount,
                         contract.beneficiary,
                         contract.mint,
@@ -128,7 +141,6 @@ export async function GET(request: NextRequest) {
                     )
                 );
 
-                // Instrução do Contrato
                 const claimIx = await program.methods.claimTokens()
                     .accounts({
                         vestingContract: contractPubkey,
@@ -137,13 +149,12 @@ export async function GET(request: NextRequest) {
                         beneficiary: contract.beneficiary,
                         tokenProgram: splTokenProgramId,
                         token2022Program: token2022ProgramId,
-                    })
+                    } as any)
                     .instruction();
 
                 transaction.add(claimIx);
 
-                // Enviar usando o provider para automatizar sign/confirm
-                const tx = await (program.provider as any).sendAndConfirm(transaction);
+                const tx = await provider.sendAndConfirm(transaction);
 
                 console.log(`[Relayer] Sucesso: ${tx}`);
                 results.push({ contract: contractPubkey.toBase58(), tx });
