@@ -217,3 +217,6 @@ export const sendTransaction = async (wallet: any, transaction: any, injectedSen
         return { success: false, error: error.message };
     }
 };
+
+// Alias para compatibilidade retroativa (nome antigo: releaseTransaction)
+export const releaseTransaction = sendTransaction;
