@@ -218,5 +218,26 @@ export const sendTransaction = async (wallet: any, transaction: any, injectedSen
     }
 };
 
-// Alias para compatibilidade retroativa (nome antigo: releaseTransaction)
-export const releaseTransaction = sendTransaction;
+// Função para liberar/reivindicar tokens de um contrato de vesting
+// Assinatura compatível com useVestingActions: (wallet, connection, vestingAccountAddress, network)
+export const releaseTransaction = async (
+    wallet: any,
+    connection: Connection,
+    vestingAccountAddress: string,
+    network: 'mainnet' | 'devnet' = DEFAULT_NETWORK
+): Promise<{ success: boolean; signature?: string | null; error?: string }> => {
+    try {
+        console.log(`[releaseTransaction] Iniciando claim para conta: ${vestingAccountAddress} na rede ${network}`);
+        // Esta função delega para o cron/relayer — o claim é feito pelo backend com a chave do relayer
+        // No frontend, apenas sinalizamos o pedido via API route
+        const response = await fetch('/api/cron/release', { method: 'GET' });
+        const data = await response.json();
+        if (!response.ok) {
+            throw new Error(data.error || 'Erro ao chamar relayer');
+        }
+        return { success: true, signature: null };
+    } catch (error: any) {
+        console.error('[releaseTransaction] Erro:', error);
+        return { success: false, error: error.message };
+    }
+};
