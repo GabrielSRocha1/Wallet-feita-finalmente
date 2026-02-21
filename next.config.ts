@@ -11,9 +11,6 @@ const nextConfig: NextConfig = {
       },
     ],
   },
-  transpilePackages: ['@solana/web3.js', '@solana/spl-token'],
-  serverExternalPackages: ['@coral-xyz/anchor'],
 };
-
 
 export default nextConfig;

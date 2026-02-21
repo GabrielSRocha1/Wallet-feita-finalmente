@@ -1,11 +1,21 @@
-[workspace]
-members = [
-    "programs/*"
-]
+[package]
+name = "verum_vesting"
+version = "0.1.0"
+description = "Created with Anchor"
+edition = "2021"
 
-[profile.release]
-overflow-checks = true
-lto = "fat"
-codegen-units = 1
-[profile.release.build-override]
-opt-level = 3
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "verum_vesting"
+
+[features]
+default = []
+cpi = ["no-entrypoint"]
+no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
+idl-build = ["anchor-lang/idl-build", "anchor-spl/idl-build"]
+
+[dependencies]
+anchor-lang = "0.29.0"
+anchor-spl = { version = "0.29.0", features = ["token", "token-2022"] }
