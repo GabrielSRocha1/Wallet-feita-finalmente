@@ -29,7 +29,7 @@ export async function getOrCreateToken2022ATA(
     owner: PublicKey,
     allowOwnerOffCurve: boolean = false,
     commitment: Commitment = 'confirmed'
-): Promise<PublicKey> {
+): Promise<{ ata: PublicKey; instruction: any | null }> {
 
     // Calcula o endereço da ATA para Token-2022
     const ata = getAssociatedTokenAddressSync(
