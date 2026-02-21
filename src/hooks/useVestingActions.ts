@@ -25,5 +25,9 @@ export const useVestingActions = () => {
 
     return {
         release,
+        sendTokens: async (...args: any[]) => {
+            console.log("Mock sendTokens called", args);
+            return { success: true, signature: "mock" };
+        },
     };
 };
