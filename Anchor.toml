@@ -10,11 +10,14 @@ verum_vesting = "Vesting111111111111111111111111111111111111"
 [programs.devnet]
 verum_vesting = "HMqYLNw1ABgVeFcP2PmwDv6bibcm9y318aTo2g25xQMm"
 
+[programs.mainnet]
+verum_vesting = "DE9UHAY6UhxYfMTGBwzCoDRHphV6Xrcee8z1L8xJqydy"
+
 [registry]
 url = "https://api.apr.dev"
 
 [provider]
-cluster = "devnet"
+cluster = "mainnet"
 wallet = "~/.config/solana/id.json"
 
 [scripts]
