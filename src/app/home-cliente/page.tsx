@@ -9,7 +9,7 @@ import { useTokenMonitor } from "@/hooks/useTokenMonitor";
 import { useNetwork } from "@/contexts/NetworkContext";
 import ConnectWalletModal from "@/components/ConnectWalletModal";
 import NetworkSelector from "@/components/NetworkSelector";
-import { parseVestingDate } from "@/utils/date-utils";
+import { parseVestingDate, calculateVestingProgress } from "@/utils/date-utils";
 
 export default function HomeClientePage() {
     const router = useRouter();
@@ -66,27 +66,18 @@ export default function HomeClientePage() {
                     if (startDate && c.vestingDuration) {
                         const start = startDate.getTime();
                         const now = Date.now();
-
-                        const duration = parseInt(c.vestingDuration);
-                        const unit = (c.selectedTimeUnit || "").toLowerCase();
-                        let durationMs = 3600000;
-                        if (unit.includes('minuto')) durationMs = duration * 60 * 1000;
-                        else if (unit.includes('hora')) durationMs = duration * 3600000;
-                        else if (unit.includes('dia')) durationMs = duration * 86400000;
-                        else if (unit.includes('semana')) durationMs = duration * 7 * 86400000;
-                        else if (unit.includes('mês') || unit.includes('mes')) durationMs = duration * 30.44 * 86400000;
-                        else durationMs = duration * 365.25 * 86400000;
-
-                        // Progress Calculation (0 to 1)
-                        const rawProgress = (now - start) / durationMs;
-                        const progress = Math.min(1, Math.max(0, rawProgress));
+                        // Progress Calculation (0 to 1) using unified logic
+                        const progress = calculateVestingProgress(c, now);
 
                         // ----------------------------------------------------
                         // LÓGICA RÍGIDA DE STATUS
                         // ----------------------------------------------------
                         let newStatus = c.status;
 
-                        if (progress >= 1) {
+                        // Se foi cancelado ou alterado manualmente, preservamos o status para a UI
+                        if (c.status === "cancelado" || c.status === "alterado") {
+                            newStatus = c.status;
+                        } else if (progress >= 1) {
                             // Periodo de vesting finalizado
                             newStatus = "completo";
                         } else if (progress > 0) {
@@ -97,7 +88,7 @@ export default function HomeClientePage() {
                             newStatus = "agendado";
                         }
 
-                        // Atualiza status se mudou (e não era cancelado)
+                        // Atualiza status se mudou (e não era cancelado/alterado)
                         if (newStatus !== c.status) {
                             c.status = newStatus;
                             hasChanges = true;
@@ -210,19 +201,7 @@ export default function HomeClientePage() {
                 try {
                     const start = startDate.getTime();
                     const now = Date.now();
-                    if (now < start) return 0;
-
-                    const duration = parseInt(contract.vestingDuration);
-                    const unit = (contract.selectedTimeUnit || "").toLowerCase();
-                    let durationMs = 0;
-                    if (unit.includes('minuto')) durationMs = duration * 60 * 1000;
-                    else if (unit.includes('hora')) durationMs = duration * 3600000;
-                    else if (unit.includes('dia')) durationMs = duration * 86400000;
-                    else if (unit.includes('semana')) durationMs = duration * 7 * 86400000;
-                    else if (unit.includes('mês') || unit.includes('mes')) durationMs = duration * 30.44 * 86400000;
-                    else durationMs = duration * 365.25 * 86400000;
-
-                    const progress = Math.min(1, (now - start) / durationMs);
+                    const progress = calculateVestingProgress(contract, now);
                     return total * progress;
                 } catch (e) { return 0; }
             };
@@ -366,27 +345,16 @@ export default function HomeClientePage() {
         // If complete, do not show in pending tabs
         if (rawStatus === "completo") return false;
 
-        // Calculate progress for strict time-based filtering (Em Andamento vs Agendado)
-        let progress = 0;
-        const startDate = parseVestingDate(contract.vestingStartDate);
-        if (startDate && contract.vestingDuration) {
-            const start = startDate.getTime();
-            const now = Date.now();
-
-            // Replicate duration logic for accuracy
-            const duration = parseInt(contract.vestingDuration);
-            const unit = (contract.selectedTimeUnit || "").toLowerCase();
-            let durationMs = 3600000;
-            if (unit.includes('minuto')) durationMs = duration * 60 * 1000;
-            else if (unit.includes('hora')) durationMs = duration * 3600000;
-            else if (unit.includes('dia')) durationMs = duration * 86400000;
-            else if (unit.includes('semana')) durationMs = duration * 7 * 86400000;
-            else if (unit.includes('mês') || unit.includes('mes')) durationMs = duration * 30.44 * 86400000;
-            else durationMs = duration * 365.25 * 86400000;
-
-            const rawP = (now - start) / durationMs;
-            progress = Math.min(1, Math.max(0, rawP));
+        // 2.5 Alterado (Strict String)
+        if (activeFilter === "alterado") {
+            return rawStatus === "alterado";
         }
+
+        // If altered, do not show in pending tabs
+        if (rawStatus === "alterado") return false;
+
+        // Calculate unified progress
+        const progress = calculateVestingProgress(contract, Date.now());
 
         // 3. Em Andamento (Strict: Progress > 0% AND < 100%)
         if (activeFilter === "em-andamento") {
@@ -445,7 +413,7 @@ export default function HomeClientePage() {
                     </div>
 
                     <div className="flex items-center gap-3">
-                        {connected && isAdminUser && (
+                        {connected && isAdminUser && currentNetwork !== 'mainnet' && (
                             <button
                                 onClick={handleClearTests}
                                 className="bg-red-500/10 hover:bg-red-500/20 text-red-500 text-[10px] font-bold py-2 px-3 rounded-lg transition-all border border-red-500/20 flex items-center gap-1 cursor-pointer"
@@ -643,19 +611,9 @@ export default function HomeClientePage() {
                                                 const startDate = parseVestingDate(contract.vestingStartDate);
                                                 if (!startDate) return <span className="text-[10px] text-zinc-600 font-bold">--%</span>;
 
-                                                const start = startDate.getTime();
-                                                const now = Date.now();
-                                                const duration = parseInt(contract.vestingDuration || "1");
-                                                const unit = (contract.selectedTimeUnit || "").toLowerCase();
-                                                let durationMs = 3600000;
-                                                if (unit.includes('minuto')) durationMs = duration * 60 * 1000;
-                                                else if (unit.includes('hora')) durationMs = duration * 3600000;
-                                                else if (unit.includes('dia')) durationMs = duration * 86400000;
-                                                else if (unit.includes('semana')) durationMs = duration * 7 * 86400000;
-                                                else if (unit.includes('mês') || unit.includes('mes')) durationMs = duration * 30.44 * 86400000;
-                                                else durationMs = duration * 365.25 * 86400000;
-                                                const progress = Math.min(100, Math.max(0, Math.round(((now - start) / durationMs) * 100)) || 0);
-                                                return <span className="text-[10px] text-[#EAB308] font-black">{progress}%</span>;
+                                                const progress = calculateVestingProgress(contract, Date.now());
+                                                const percentage = Math.round(progress * 100);
+                                                return <span className="text-[10px] text-[#EAB308] font-black">{percentage}%</span>;
                                             })()}
                                         </div>
                                         <div className="flex flex-col text-zinc-500 leading-tight">
@@ -667,18 +625,8 @@ export default function HomeClientePage() {
                                                     const startDate = parseVestingDate(contract.vestingStartDate);
                                                     if (!startDate) return "0.00";
 
-                                                    const start = startDate.getTime();
-                                                    const now = Date.now();
-                                                    const duration = parseInt(contract.vestingDuration || "1");
-                                                    const unit = (contract.selectedTimeUnit || "").toLowerCase();
-                                                    let durationMs = 3600000;
-                                                    if (unit.includes('minuto')) durationMs = duration * 60 * 1000;
-                                                    else if (unit.includes('hora')) durationMs = duration * 3600000;
-                                                    else if (unit.includes('dia')) durationMs = duration * 86400000;
-                                                    else if (unit.includes('semana')) durationMs = duration * 7 * 86400000;
-                                                    else if (unit.includes('mês') || unit.includes('mes')) durationMs = duration * 30.44 * 86400000;
-                                                    else durationMs = duration * 365.25 * 86400000;
-                                                    const unlocked = total * Math.min(1, Math.max(0, (now - start) / durationMs));
+                                                    const progress = calculateVestingProgress(contract, Date.now());
+                                                    const unlocked = total * progress;
                                                     return unlocked.toLocaleString(undefined, { maximumFractionDigits: 2 });
                                                 })()} {contract.selectedToken?.symbol}
                                             </span>

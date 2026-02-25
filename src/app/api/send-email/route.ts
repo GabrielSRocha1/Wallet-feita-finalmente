@@ -5,15 +5,12 @@ import nodemailer from 'nodemailer';
 
 export async function POST(req: Request) {
     try {
-        const { recipientEmail, contractData } = await req.json();
+        const { recipientEmail, contractData, emailType = "creation" } = await req.json();
 
-        if (!recipientEmail) {
-            return NextResponse.json({ message: 'Email not provided' }, { status: 400 });
+        if (!recipientEmail || recipientEmail === "exemplo@email.com") {
+            return NextResponse.json({ message: 'Email not provided or invalid' }, { status: 400 });
         }
 
-        // Configure Nodemailer transporter
-        // NOTE: In a real production environment, you would use Environment Variables for these credentials
-        // e.g. process.env.SMTP_HOST, process.env.SMTP_USER, etc.
         const transporter = nodemailer.createTransport({
             host: process.env.SMTP_HOST || "smtp.example.com",
             port: parseInt(process.env.SMTP_PORT || "587"),
@@ -22,65 +19,109 @@ export async function POST(req: Request) {
                 user: process.env.SMTP_USER || "user@example.com",
                 pass: process.env.SMTP_PASS || "password",
             },
+            tls: {
+                // Do not fail on invalid certs (common for custom SMTP)
+                rejectUnauthorized: false
+            }
         });
 
-        // Email Content
+        const isReminder = emailType === "reminder";
+        const subject = isReminder
+            ? `Lembrete de Saque Disponível: ${contractData.tokenName || 'Tokens'}`
+            : `Seu Contrato Vesting foi Criado: ${contractData.tokenName || 'Tokens'}`;
+
+        // Format status for display
+        const statusMap: Record<string, string> = {
+            'em-andamento': 'em andamento',
+            'agendado': 'agendado',
+            'completo': 'completo',
+            'cancelado': 'cancelado'
+        };
+        const displayStatus = statusMap[contractData.status] || contractData.status || 'agendado';
+
         const mailOptions = {
-            from: '"Verum Vesting" <smartcontract@mastter.digital>',
+            from: process.env.SMTP_USER ? `"Verum Vesting" <${process.env.SMTP_USER}>` : '"Verum Vesting" <smartcontract@mastter.digital>',
             to: recipientEmail,
-            subject: `Seu Contrato Vesting foi Criado: ${contractData.tokenName} - ${contractData.tokenSymbol}`,
+            subject: subject,
             html: `
-                <div style="font-family: Arial, sans-serif; background-color: #f4f4f5; padding: 20px;">
-                    <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
-                        <div style="background-color: #000000; padding: 20px; text-align: center;">
-                            <h1 style="color: #EAB308; margin: 0;">Verum Vesting</h1>
+                <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f4f5; padding: 40px 20px; color: #18181b; line-height: 1.5;">
+                    <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);">
+                        <!-- Header -->
+                        <div style="background-color: #000000; padding: 32px; text-align: center;">
+                            <h1 style="color: #EAB308; margin: 0; font-size: 28px; font-weight: 700; letter-spacing: -0.5px;">Verum Vesting</h1>
                         </div>
-                        <div style="padding: 30px;">
-                            <h2 style="color: #333333; margin-top: 0;">Novo Contrato Vesting Disponível</h2>
-                            <p style="color: #666666; line-height: 1.6;">Olá,</p>
-                            <p style="color: #666666; line-height: 1.6;">Um novo contrato de vesting foi criado para você. Abaixo estão os detalhes:</p>
+                        
+                        <!-- Content -->
+                        <div style="padding: 40px;">
+                            <h2 style="color: #111827; margin-top: 0; margin-bottom: 24px; font-size: 22px; font-weight: 700;">
+                                ${isReminder ? 'Saque Disponível!' : 'Novo Contrato Vesting Disponível'}
+                            </h2>
                             
-                            <hr style="border: 0; border-top: 1px solid #eeeeee; margin: 20px 0;">
+                            <p style="color: #4b5563; font-size: 16px; margin-bottom: 8px;">Olá,</p>
+                            <p style="color: #4b5563; font-size: 16px; margin-bottom: 24px;">
+                                ${isReminder
+                    ? `O administrador do seu contrato <strong>${contractData.tokenName || 'Tokens'}</strong> enviou este lembrete para avisar que você já possui tokens disponíveis para saque.`
+                    : `Um novo contrato de vesting foi criado para você. Abaixo estão os detalhes:`}
+                            </p>
                             
-                            <div style="margin-bottom: 20px;">
-                                <p style="margin: 5px 0;"><strong>Token:</strong> ${contractData.tokenName} (${contractData.tokenSymbol})</p>
-                                <p style="margin: 5px 0;"><strong>Quantidade Total:</strong> ${contractData.totalAmount} ${contractData.tokenSymbol}</p>
-                                <p style="margin: 5px 0;"><strong>Status:</strong> ${contractData.status}</p>
-                                <p style="margin: 5px 0;"><strong>Início do Vesting:</strong> ${contractData.vestingStartDate}</p>
-                                <p style="margin: 5px 0;"><strong>Duração:</strong> ${contractData.vestingDuration} ${contractData.selectedTimeUnit}</p>
-                                <p style="margin: 5px 0;"><strong>Frequência:</strong> ${contractData.selectedSchedule}</p>
+                            <div style="border-top: 1px solid #e5e7eb; padding-top: 24px; margin-top: 24px;">
+                                <div style="margin-bottom: 12px; font-size: 15px;">
+                                    <strong style="color: #111827;">Token:</strong> ${contractData.tokenName || 'Token'} (${contractData.tokenSymbol || 'TKN'})
+                                </div>
+                                <div style="margin-bottom: 12px; font-size: 15px;">
+                                    <strong style="color: #111827;">Quantidade Total:</strong> ${contractData.totalAmount || '0'} ${contractData.tokenSymbol || ''}
+                                </div>
+                                <div style="margin-bottom: 12px; font-size: 15px;">
+                                    <strong style="color: #111827;">Status:</strong> ${displayStatus}
+                                </div>
+                                <div style="margin-bottom: 12px; font-size: 15px;">
+                                    <strong style="color: #111827;">Início do Vesting:</strong> ${contractData.vestingStartDate || 'N/A'}
+                                </div>
+                                <div style="margin-bottom: 12px; font-size: 15px;">
+                                    <strong style="color: #111827;">Duração:</strong> ${contractData.vestingDuration || '0'} ${contractData.selectedTimeUnit || ''}
+                                </div>
+                                <div style="margin-bottom: 12px; font-size: 15px;">
+                                    <strong style="color: #111827;">Frequência:</strong> ${contractData.selectedSchedule || 'N/A'}
+                                </div>
                             </div>
 
-                            <div style="text-align: center; margin-top: 30px;">
-                                <a href="https://verumvesting.mastter.digital" style="background-color: #EAB308; color: #000000; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">Acessar Plataforma</a>
+                            <!-- Button Area -->
+                            <div style="text-align: center; margin-top: 40px; margin-bottom: 30px;">
+                                <a href="https://verumvesting.mastter.digital" style="background-color: #EAB308; color: #000000; padding: 14px 44px; text-decoration: none; border-radius: 8px; font-weight: 700; display: inline-block; font-size: 16px;">
+                                    Acessar Plataforma
+                                </a>
                             </div>
                             
-                            <p style="color: #999999; font-size: 12px; margin-top: 30px; text-align: center;">Ou acesse diretamente: https://verumvesting.mastter.digital</p>
+                            <!-- Bottom Link -->
+                            <p style="color: #9ca3af; font-size: 13px; text-align: center; margin-top: 0;">
+                                Ou acesse diretamente: <a href="https://verumvesting.mastter.digital" style="color: #3b82f6; text-decoration: none;">https://verumvesting.mastter.digital</a>
+                            </p>
                         </div>
-                        <div style="background-color: #f4f4f5; padding: 15px; text-align: center; color: #999999; font-size: 11px;">
-                            &copy; ${new Date().getFullYear()} Verum Vesting. Todos os direitos reservados.
+                        
+                        <!-- Footer Small dots based on image -->
+                        <div style="padding: 0 40px 40px 40px; text-align: left;">
+                             <div style="color: #cbd5e1; letter-spacing: 2px; font-size: 20px;">...</div>
                         </div>
                     </div>
                 </div>
             `
         };
 
-        // Attempt to send email
         try {
-            // Only send if we have basic env vars configured, otherwise just log
             if (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) {
+                console.log("[API] Attempting to send email to:", recipientEmail);
                 await transporter.sendMail(mailOptions);
-                console.log("REAL EMAIL SENT TO:", recipientEmail);
+                console.log("[API] SUCCESS: Email sent to", recipientEmail);
             } else {
-                console.log("---------------------------------------------------");
-                console.log("MOCK EMAIL SENT TO:", recipientEmail);
-                console.log("SUBJECT:", mailOptions.subject);
-                console.log("WARNING: To send real emails, set SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS in your .env file.");
-                console.log("---------------------------------------------------");
+                console.log("[API] INFO: Mock mode - Credentials missing in environment.");
             }
-        } catch (emailError) {
-            console.error("Failed to send email via transporter:", emailError);
-            // We still return success to the frontend to avoid blocking the flow, but log the error
+        } catch (emailError: any) {
+            console.error("[API] SMTP ERROR:", emailError.message || emailError);
+            return NextResponse.json({
+                success: false,
+                message: `Erro no servidor SMTP: ${emailError.code || 'Falha na conexão'}`,
+                details: emailError.message
+            }, { status: 500 });
         }
 
         return NextResponse.json({ success: true, message: 'Email processado' });

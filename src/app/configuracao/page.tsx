@@ -63,7 +63,7 @@ export default function ConfigurationPage() {
     const [vestingDuration, setVestingDuration] = useState("");
     const [cliffAmount, setCliffAmount] = useState("");
 
-    const [cliffType, setCliffType] = useState<"PERCENTAGEM" | "QUANTIDADE">("PERCENTAGEM");
+
     const [toggles, setToggles] = useState({
         cancelable: true,
         autoClaim: true,
@@ -84,7 +84,7 @@ export default function ConfigurationPage() {
                 setSelectedRecipientOption(data.selectedRecipientOption);
                 setVestingDuration(data.vestingDuration);
                 setCliffAmount(data.cliffAmount);
-                setCliffType(data.cliffType);
+
                 setToggles(data.toggles);
             } catch (e) {
                 console.error("Erro ao carregar rascunho:", e);
@@ -115,7 +115,7 @@ export default function ConfigurationPage() {
             selectedRecipientOption,
             vestingDuration,
             cliffAmount,
-            cliffType,
+
             toggles
         };
         localStorage.setItem("contract_draft", JSON.stringify(configData));
@@ -302,52 +302,19 @@ export default function ConfigurationPage() {
                 <section className="space-y-3">
                     <h3 className="text-sm font-semibold">Cliff configurações</h3>
                     <div className="bg-[#1C1C1E] rounded-2xl p-5 border border-white/5 space-y-4">
-                        <p className="text-sm font-medium">Adicionar valor cliff</p>
-                        <div className="space-y-2">
-                            <p className="text-xs text-gray-400">Tipo</p>
-                            <div className="bg-[#2C2C2E] p-1 rounded-xl grid grid-cols-2 text-center text-xs">
-                                <div
-                                    onClick={() => setCliffType("PERCENTAGEM")}
-                                    className={`py-2 rounded-lg font-medium cursor-pointer transition-colors ${cliffType === "PERCENTAGEM" ? "bg-[#3A3A3C] text-white" : "text-gray-400 hover:text-white"}`}
-                                >
-                                    Percentagem
-                                </div>
-                                <div
-                                    onClick={() => setCliffType("QUANTIDADE")}
-                                    className={`py-2 rounded-lg font-medium cursor-pointer transition-colors ${cliffType === "QUANTIDADE" ? "bg-[#3A3A3C] text-white" : "text-gray-400 hover:text-white"}`}
-                                >
-                                    Quantidade
-                                </div>
-                            </div>
+                        <p className="text-sm font-medium">Adicionar valor cliff (%)</p>
+
+                        <div className="bg-[#2C2C2E] p-4 rounded-xl border border-white/10 flex justify-between animate-in fade-in">
+                            <input
+                                className="bg-transparent border-none p-0 focus:ring-0 w-full text-white outline-none"
+                                placeholder="0"
+                                name="cliffAmount"
+                                autoComplete="off"
+                                value={cliffAmount}
+                                onChange={(e) => setCliffAmount(e.target.value)}
+                            />
+                            <span className="text-gray-500">%</span>
                         </div>
-
-                        {cliffType === "QUANTIDADE" && (
-                            <div className="bg-[#2C2C2E] p-4 rounded-xl border border-white/10 flex justify-between animate-in fade-in">
-                                <input
-                                    className="bg-transparent border-none p-0 focus:ring-0 w-full text-white outline-none"
-                                    placeholder="0"
-                                    name="cliffAmount"
-                                    autoComplete="off"
-                                    value={cliffAmount}
-                                    onChange={(e) => setCliffAmount(e.target.value)}
-                                />
-                                <span className="text-gray-500">{selectedToken.symbol || "TOKEN"}</span>
-                            </div>
-                        )}
-
-                        {cliffType === "PERCENTAGEM" && (
-                            <div className="bg-[#2C2C2E] p-4 rounded-xl border border-white/10 flex justify-between animate-in fade-in">
-                                <input
-                                    className="bg-transparent border-none p-0 focus:ring-0 w-full text-white outline-none"
-                                    placeholder="0"
-                                    name="cliffAmount"
-                                    autoComplete="off"
-                                    value={cliffAmount}
-                                    onChange={(e) => setCliffAmount(e.target.value)}
-                                />
-                                <span className="text-gray-500">%</span>
-                            </div>
-                        )}
                     </div>
                 </section>
 

@@ -10,15 +10,14 @@ import { isAdmin, getWalletCookie } from "@/utils/rbac";
 import { useWallet } from "@/contexts/WalletContext";
 import { useNetwork } from "@/contexts/NetworkContext";
 import NetworkSelector from "@/components/NetworkSelector";
-import { parseVestingDate } from "@/utils/date-utils";
+import { parseVestingDate, calculateVestingProgress } from "@/utils/date-utils";
 import { Transaction, PublicKey, SystemProgram } from '@solana/web3.js';
 import { getAssociatedTokenAddress, TOKEN_PROGRAM_ID, createAssociatedTokenAccountIdempotentInstruction } from '@solana/spl-token';
 import { Program, AnchorProvider, Idl } from '@project-serum/anchor';
 import { detectTokenProgram } from "@/utils/tokenProgram";
+import { PROGRAM_IDS } from "@/utils/solana-config";
 
 const TOKEN_2022_PROGRAM_ID = new PublicKey("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb");
-
-const PROGRAM_ID = new PublicKey("HMqYLNw1ABgVeFcP2PmwDv6bibcm9y318aTo2g25xQMm");
 
 const IDL: Idl = {
     "version": "0.1.0",
@@ -33,6 +32,27 @@ const IDL: Idl = {
                 { "name": "beneficiary", "isMut": false, "isSigner": false },
                 { "name": "mint", "isMut": false, "isSigner": false },
                 { "name": "tokenProgram", "isMut": false, "isSigner": false }
+            ],
+            "args": []
+        },
+        {
+            "name": "cancelVesting",
+            "accounts": [
+                { "name": "vestingContract", "isMut": true, "isSigner": false },
+                { "name": "creator", "isMut": true, "isSigner": true },
+                { "name": "escrowWallet", "isMut": true, "isSigner": false },
+                { "name": "creatorTokenAccount", "isMut": true, "isSigner": false },
+                { "name": "mint", "isMut": false, "isSigner": false },
+                { "name": "tokenProgram", "isMut": false, "isSigner": false }
+            ],
+            "args": []
+        },
+        {
+            "name": "updateBeneficiary",
+            "accounts": [
+                { "name": "vestingContract", "isMut": true, "isSigner": false },
+                { "name": "creator", "isMut": true, "isSigner": true },
+                { "name": "newBeneficiary", "isMut": false, "isSigner": false }
             ],
             "args": []
         }
@@ -54,6 +74,9 @@ export default function VestingContractDetailsPage() {
     const [isAdminUser, setIsAdminUser] = useState(false);
     const [loading, setLoading] = useState(true);
     const [isClaiming, setIsClaiming] = useState(false);
+    const [isSendingEmail, setIsSendingEmail] = useState(false);
+    const [isCanceling, setIsCanceling] = useState(false);
+    const [isUpdatingRecipient, setIsUpdatingRecipient] = useState(false);
 
     // --- Dynamic Engine for Details ---
     const getDynamicVesting = () => {
@@ -68,17 +91,7 @@ export default function VestingContractDetailsPage() {
             if (now < start) return { unlocked: 0, progress: 0, locked: contractData.totalAmount };
 
             const total = contractData.totalAmount || 0;
-            const duration = parseInt(contractData.vestingDuration);
-            const unit = (contractData.selectedTimeUnit || "").toLowerCase();
-            let durationMs = 3600000;
-            if (unit.includes('minuto')) durationMs = duration * 60 * 1000;
-            else if (unit.includes('hora')) durationMs = duration * 3600000;
-            else if (unit.includes('dia')) durationMs = duration * 86400000;
-            else if (unit.includes('semana')) durationMs = duration * 7 * 86400000;
-            else if (unit.includes('mês') || unit.includes('mes')) durationMs = duration * 30.44 * 86400000;
-            else durationMs = duration * 365.25 * 86400000;
-
-            const progress = Math.min(1, (now - start) / durationMs);
+            const progress = calculateVestingProgress(contractData, now);
             const unlocked = total * progress;
             return {
                 unlocked,
@@ -114,7 +127,7 @@ export default function VestingContractDetailsPage() {
             }
 
             // 2. Check for Auto-Claim
-            if (contractData.autoClaim && contractData.claimedAmount !== stats.unlocked) {
+            if (contractData.autoClaim && contractData.claimedAmount !== stats.unlocked && contractData.status !== "cancelado") {
                 updates.claimedAmount = stats.unlocked;
                 hasChanges = true;
             }
@@ -299,34 +312,293 @@ export default function VestingContractDetailsPage() {
         setIsCancelModalOpen(true);
     };
 
-    const confirmCancel = () => {
-        updateContract({ status: "cancelado" });
-        setIsCancelModalOpen(false);
-        setToastMessage("Contrato cancelado com sucesso!");
-        setShowToast(true);
-        setTimeout(() => setShowToast(false), 2000);
+    const confirmCancel = async () => {
+        if (isCanceling || !contractData) return;
+
+        setIsCanceling(true);
+
+        try {
+            if (!publicKey || !wallet) {
+                throw new Error("Carteira não conectada.");
+            }
+
+            const creatorPubkey = new PublicKey(publicKey);
+
+            if (creatorPubkey.toBase58() !== contractData.senderAddress) {
+                throw new Error("Apenas o criador do contrato pode cancelá-lo.");
+            }
+
+            let vestingContractPubkey: PublicKey;
+            try {
+                vestingContractPubkey = new PublicKey(contractData.id);
+            } catch (e) {
+                throw new Error("ID do contrato inválido.");
+            }
+
+            const mintPubkey = new PublicKey(contractData.mintAddress);
+            const tokenProgramId = await detectTokenProgram(connection, contractData.mintAddress);
+
+            const creatorTokenAccount = await getAssociatedTokenAddress(
+                mintPubkey,
+                creatorPubkey,
+                false,
+                tokenProgramId
+            );
+
+            const activeProgramId = new PublicKey(PROGRAM_IDS[currentNetwork] || PROGRAM_IDS['devnet']);
+
+            const [escrowWallet] = PublicKey.findProgramAddressSync(
+                [Buffer.from("escrow"), vestingContractPubkey.toBuffer()],
+                activeProgramId
+            );
+
+            const provider = new AnchorProvider(connection, wallet as any, { commitment: 'confirmed' });
+            const program = new Program(IDL, activeProgramId, provider);
+
+            const tx = new Transaction();
+
+            tx.add(
+                createAssociatedTokenAccountIdempotentInstruction(
+                    creatorPubkey,
+                    creatorTokenAccount,
+                    creatorPubkey,
+                    mintPubkey,
+                    tokenProgramId
+                )
+            );
+
+            const cancelIx = await program.methods.cancelVesting()
+                .accounts({
+                    vestingContract: vestingContractPubkey,
+                    creator: creatorPubkey,
+                    escrowWallet: escrowWallet,
+                    creatorTokenAccount: creatorTokenAccount,
+                    mint: mintPubkey,
+                    tokenProgram: tokenProgramId,
+                })
+                .instruction();
+
+            tx.add(cancelIx);
+
+            const { blockhash } = await connection.getLatestBlockhash('confirmed');
+            tx.recentBlockhash = blockhash;
+            tx.feePayer = creatorPubkey;
+
+            const simulation = await connection.simulateTransaction(tx);
+            if (simulation.value.err) {
+                console.error('[contrato-detalhes] ❌ Erro na simulação (Cancel):', simulation.value.err);
+                throw new Error(`Simulação falhou: ${JSON.stringify(simulation.value.err)}\nLogs:\n${simulation.value.logs?.join('\n')}`);
+            }
+
+            let signature = "";
+            if (wallet.sendTransaction) {
+                signature = await wallet.sendTransaction(tx, connection);
+            } else if (wallet.signAndSendTransaction) {
+                const { signature: sig } = await wallet.signAndSendTransaction(tx);
+                signature = sig;
+            } else {
+                throw new Error("Sua carteira não suporta envio de transação (sendTransaction não encontrado).");
+            }
+
+            setToastMessage("Confirmando cancelamento na rede...");
+            setShowToast(true);
+
+            await connection.confirmTransaction(signature, 'confirmed');
+
+            updateContract({ status: "cancelado" });
+            setIsCancelModalOpen(false);
+            setToastMessage("Contrato cancelado com sucesso e tokens devolvidos!");
+            setShowToast(true);
+            setTimeout(() => setShowToast(false), 3000);
+
+        } catch (error: any) {
+            console.error("Erro no Cancel On-Chain:", error);
+            const msg = error.message || String(error);
+            if (msg.includes("inválido")) {
+                setToastMessage("Erro: Este contrato é apenas uma simulação no frontend e não possui uma conta Vesting real.");
+            } else if (msg.includes("rejected") || msg.includes("User rejected")) {
+                setToastMessage("Transação cancelada pelo usuário.");
+            } else {
+                setToastMessage(`Erro: ${msg}`);
+            }
+            setShowToast(true);
+            setTimeout(() => { setShowToast(false); setIsCancelModalOpen(false); }, 3000);
+        } finally {
+            setIsCanceling(false);
+        }
     };
 
-    const handleRecipientChange = (newAddress: string) => {
-        const updatedRecipients = [...(contractData.recipients || [])];
-        if (updatedRecipients[0]) {
-            updatedRecipients[0] = { ...updatedRecipients[0], walletAddress: newAddress };
+    const handleRecipientChange = async (newAddress: string) => {
+        if (isUpdatingRecipient || !contractData || contractData.status === "cancelado") return;
+
+        setIsUpdatingRecipient(true);
+
+        try {
+            if (!publicKey || !wallet) {
+                throw new Error("Carteira não conectada.");
+            }
+
+            const creatorPubkey = new PublicKey(publicKey);
+
+            if (creatorPubkey.toBase58() !== contractData.senderAddress) {
+                throw new Error("Apenas o criador do contrato pode alterar o destinatário.");
+            }
+
+            let vestingContractPubkey: PublicKey;
+            try {
+                vestingContractPubkey = new PublicKey(contractData.id);
+            } catch (e) {
+                throw new Error("ID do contrato inválido.");
+            }
+
+            let newBeneficiaryPubkey: PublicKey;
+            try {
+                newBeneficiaryPubkey = new PublicKey(newAddress);
+            } catch (e) {
+                throw new Error("Novo endereço inválido.");
+            }
+
+            if (contractData.claimedAmount > 0) {
+                throw new Error("Tokens já começaram a ser resgatados.");
+            }
+
+            const activeProgramId = new PublicKey(PROGRAM_IDS[currentNetwork] || PROGRAM_IDS['devnet']);
+
+            const provider = new AnchorProvider(connection, wallet as any, { commitment: 'confirmed' });
+            const program = new Program(IDL, activeProgramId, provider);
+
+            const tx = new Transaction();
+            const updateIx = await program.methods.updateBeneficiary()
+                .accounts({
+                    vestingContract: vestingContractPubkey,
+                    creator: creatorPubkey,
+                    newBeneficiary: newBeneficiaryPubkey,
+                })
+                .instruction();
+
+            tx.add(updateIx);
+
+            const { blockhash } = await connection.getLatestBlockhash('confirmed');
+            tx.recentBlockhash = blockhash;
+            tx.feePayer = creatorPubkey;
+
+            const simulation = await connection.simulateTransaction(tx);
+            if (simulation.value.err) {
+                console.error('[contrato-detalhes] ❌ Erro na simulação (UpdateRecipient):', simulation.value.err);
+                throw new Error(`Simulação falhou: ${JSON.stringify(simulation.value.err)}\nLogs:\n${simulation.value.logs?.join('\n')}`);
+            }
+
+            let signature = "";
+            if (wallet.sendTransaction) {
+                signature = await wallet.sendTransaction(tx, connection);
+            } else if (wallet.signAndSendTransaction) {
+                const { signature: sig } = await wallet.signAndSendTransaction(tx);
+                signature = sig;
+            } else {
+                throw new Error("Sua carteira não suporta envio de transação (sendTransaction não encontrado).");
+            }
+
+            setToastMessage("Confirmando alteração na rede...");
+            setShowToast(true);
+
+            await connection.confirmTransaction(signature, 'confirmed');
+
+            const updatedRecipients = [...(contractData.recipients || [])];
+            if (updatedRecipients[0]) {
+                updatedRecipients[0] = { ...updatedRecipients[0], walletAddress: newAddress };
+            }
+
+            updateContract({
+                recipients: updatedRecipients,
+                recipientAddress: newAddress,
+                status: "alterado"
+            });
+
+            setIsChangeRecipientModalOpen(false);
+            setToastMessage("Destinatário e status atualizados com sucesso!");
+            setShowToast(true);
+            setTimeout(() => setShowToast(false), 2000);
+
+        } catch (error: any) {
+            console.error("Erro no UpdateRecipient On-Chain:", error);
+            const msg = error.message || String(error);
+            if (msg.includes("inválido")) {
+                setToastMessage("Erro: Este contrato não é real para permitir alteração On-Chain.");
+            } else if (msg.includes("rejected") || msg.includes("User rejected")) {
+                setToastMessage("Alteração cancelada pelo usuário.");
+            } else {
+                setToastMessage(`Erro: ${msg}`);
+            }
+            setShowToast(true);
+            setTimeout(() => { setShowToast(false); setIsChangeRecipientModalOpen(false); }, 3000);
+        } finally {
+            setIsUpdatingRecipient(false);
+        }
+    };
+
+    const handleNotify = async () => {
+        if (isSendingEmail || !contractData || contractData.status === "cancelado") return;
+
+        const recipientEmail =
+            contractData.destinatarioEmail ||
+            contractData.recipientEmail ||
+            contractData.recipients?.[0]?.email;
+
+        if (!recipientEmail || recipientEmail === "exemplo@email.com") {
+            setToastMessage("Erro: E-mail do destinatário não encontrado.");
+            setShowToast(true);
+            setTimeout(() => setShowToast(false), 3000);
+            return;
         }
 
-        updateContract({
-            recipients: updatedRecipients,
-            recipientAddress: newAddress,
-            status: "alterado"
-        });
+        setIsSendingEmail(true);
 
-        setIsChangeRecipientModalOpen(false);
-        setToastMessage("Destinatário e status atualizados!");
-        setShowToast(true);
-        setTimeout(() => setShowToast(false), 2000);
+        try {
+            console.log("[handleNotify] Notifying recipient:", recipientEmail);
+
+            const res = await fetch("/api/send-email", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    recipientEmail,
+                    emailType: "reminder",
+                    contractData: {
+                        tokenName: contractData.tokenName || "Token",
+                        tokenSymbol: contractData.tokenSymbol || "TKN",
+                        totalAmount: contractData.totalAmount || "0",
+                        status: contractData.status || "Ativo",
+                        vestingStartDate: contractData.vestingStartDate,
+                        vestingDuration: contractData.vestingDuration,
+                        selectedTimeUnit: contractData.selectedTimeUnit,
+                        selectedSchedule: contractData.selectedSchedule,
+                        id: contractData.id
+                    }
+                })
+            });
+
+            if (!res.ok) {
+                const errorData = await res.json();
+                throw new Error(errorData.message || "Erro ao enviar e-mail");
+            }
+
+            setToastMessage("Notificação enviada com sucesso!");
+        } catch (error: any) {
+            console.error("Erro ao notificar:", error);
+            setToastMessage(`Falha: ${error.message}`);
+        } finally {
+            setIsSendingEmail(false);
+            setTimeout(() => setShowToast(false), 3000);
+        }
     };
 
     const handleClaim = async () => {
-        if (isClaiming || !contractData) return;
+        if (isClaiming || !contractData || contractData.status === "cancelado") return;
+
+        // Se for admin, o botão agora dispara a notificação em vez do saque
+        if (isAdminUser) {
+            handleNotify();
+            return;
+        }
 
         const stats = getDynamicVesting();
         const availableToClaim = stats.unlocked - (contractData.claimedAmount || 0);
@@ -369,15 +641,17 @@ export default function VestingContractDetailsPage() {
                 tokenProgramId
             );
 
+            const activeProgramId = new PublicKey(PROGRAM_IDS[currentNetwork] || PROGRAM_IDS['devnet']);
+
             // Escrow PDA Wallet
             const [escrowWallet] = PublicKey.findProgramAddressSync(
                 [Buffer.from("escrow"), vestingContractPubkey.toBuffer()],
-                PROGRAM_ID
+                activeProgramId
             );
 
             // Provider e Program do Anchor
             const provider = new AnchorProvider(connection, wallet as any, { commitment: 'confirmed' });
-            const program = new Program(IDL, PROGRAM_ID, provider);
+            const program = new Program(IDL, activeProgramId, provider);
 
             console.log("Executando claim_tokens on-chain...", {
                 vestingContract: vestingContractPubkey.toBase58(),
@@ -785,8 +1059,18 @@ export default function VestingContractDetailsPage() {
                                     const stepThreshold = (i / totalSteps) * 100;
                                     const isUnlocked = dynamicStats.progress > stepThreshold;
 
-                                    // Visual height: Linear increase from 0 to 100%
-                                    const height = ((i + 1) / totalSteps) * 100;
+                                    // Visual height: Hybrid Cliff Logic
+                                    // Start from cliffPercent, then grow linearly
+                                    const cliffAmountProp = parseInt(contractData.cliffAmount || "0");
+                                    const isCliff = (contractData.selectedSchedule || "").toLowerCase().includes("cliff");
+
+                                    let height = ((i + 1) / totalSteps) * 100;
+
+                                    if (isCliff) {
+                                        // The initial jump is cliffAmountProp
+                                        // The remaining (100 - cliffAmountProp) is distributed over totalSteps
+                                        height = cliffAmountProp + (((100 - cliffAmountProp) * (i + 1)) / totalSteps);
+                                    }
 
                                     return (
                                         <div
@@ -885,14 +1169,18 @@ export default function VestingContractDetailsPage() {
 
                                 <button
                                     onClick={handleCancel}
-                                    disabled={contractData.status === "cancelado"}
+                                    disabled={contractData.status === "cancelado" || isCanceling}
                                     className="bg-red-500/10 hover:bg-red-500/20 disabled:opacity-30 disabled:cursor-not-allowed text-red-500 font-bold py-4 px-6 rounded-2xl flex items-center justify-between group transition-all active:scale-[0.98] border border-red-500/20 cursor-pointer"
                                 >
                                     <div className="flex items-center gap-3">
-                                        <span className="material-symbols-outlined">cancel</span>
-                                        <span className="text-sm">Cancelar Contrato</span>
+                                        {isCanceling ? (
+                                            <div className="w-5 h-5 border-2 border-red-500/20 border-t-red-500 rounded-full animate-spin"></div>
+                                        ) : (
+                                            <span className="material-symbols-outlined">cancel</span>
+                                        )}
+                                        <span className="text-sm">{isCanceling ? "Cancelando..." : "Cancelar Contrato"}</span>
                                     </div>
-                                    <span className="material-symbols-outlined text-red-500/50 group-hover:text-red-500 transition-colors">delete_forever</span>
+                                    {!isCanceling && <span className="material-symbols-outlined text-red-500/50 group-hover:text-red-500 transition-colors">delete_forever</span>}
                                 </button>
                             </div>
                         </section>
@@ -923,24 +1211,35 @@ export default function VestingContractDetailsPage() {
 
                     <button
                         className={`w-full sm:w-auto font-black uppercase tracking-tighter text-xs px-8 py-4 rounded-2xl transition-all active:scale-95 border border-zinc-700/50 flex items-center justify-center gap-2
-                            ${isClaiming
+                            ${(isClaiming || isSendingEmail || contractData.status === "cancelado")
                                 ? 'bg-zinc-800 text-zinc-500 cursor-not-allowed'
-                                : 'bg-zinc-800 hover:bg-zinc-700 text-green-500 cursor-pointer'
+                                : isAdminUser
+                                    ? 'bg-[#EAB308] hover:bg-[#EAB308]/90 text-black cursor-pointer'
+                                    : 'bg-zinc-800 hover:bg-zinc-700 text-green-500 cursor-pointer'
                             }`}
                         onClick={handleClaim}
-                        disabled={isClaiming}
+                        disabled={isClaiming || isSendingEmail || contractData.status === "cancelado"}
                     >
-                        {isClaiming ? (
+                        {isClaiming || isSendingEmail ? (
                             <>
-                                <div className="w-3 h-3 border-2 border-green-500/20 border-t-green-500 rounded-full animate-spin"></div>
-                                PROCESSANDO...
+                                <div className={`w-3 h-3 border-2 rounded-full animate-spin ${isAdminUser ? 'border-black/20 border-t-black' : 'border-green-500/20 border-t-green-500'}`}></div>
+                                {isAdminUser ? 'NOTIFICANDO...' : 'PROCESSANDO...'}
                             </>
                         ) : (
-                            'REIVINDICAÇÃO'
+                            isAdminUser ? 'LEMBRAR BENEFICIÁRIO' : 'REIVINDICAÇÃO'
                         )}
                     </button>
                 </section>
 
+                <div className="mt-8 flex justify-end">
+                    <button
+                        onClick={handleBackNavigation}
+                        className="text-zinc-500 hover:text-[#EAB308] text-xs font-bold uppercase tracking-[0.2em] transition-all flex items-center gap-2 cursor-pointer group"
+                    >
+                        <span className="material-symbols-outlined text-sm group-hover:-translate-x-1 transition-transform">arrow_back</span>
+                        Voltar
+                    </button>
+                </div>
             </main>
 
             {/* Toast Notification */}

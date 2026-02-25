@@ -15,10 +15,9 @@ import { getAssociatedTokenAddress, TOKEN_PROGRAM_ID } from '@solana/spl-token';
 import { Program, AnchorProvider, Idl, BN } from '@project-serum/anchor';
 import { detectTokenProgram } from "@/utils/tokenProgram";
 import { createAssociatedTokenAccountIdempotentInstruction } from '@solana/spl-token';
+import { PROGRAM_IDS } from "@/utils/solana-config";
 
 const TOKEN_2022_PROGRAM_ID = new PublicKey("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb");
-
-const PROGRAM_ID = new PublicKey("HMqYLNw1ABgVeFcP2PmwDv6bibcm9y318aTo2g25xQMm");
 
 const IDL: Idl = {
     "version": "0.1.0",
@@ -52,7 +51,7 @@ const IDL: Idl = {
                 "kind": "enum",
                 "variants": [
                     { "name": "Linear" },
-                    { "name": "Cliff" }
+                    { "name": "Cliff", "fields": ["i64", "u64"] }
                 ]
             }
         }
@@ -126,6 +125,10 @@ export default function ReviewPage() {
                 tokenProgramId
             );
 
+            // Fetch dynamic program ID based on network
+            const currentProgramIdStr = PROGRAM_IDS[network] || PROGRAM_IDS['devnet'];
+            const PROGRAM_ID = new PublicKey(currentProgramIdStr);
+
             // Configurar Anchor Provider e Program
             const provider = new AnchorProvider(connection, wallet as any, { commitment: 'confirmed' });
             const program = new Program(IDL, PROGRAM_ID, provider);
@@ -190,7 +193,8 @@ export default function ReviewPage() {
                 if (config.selectedSchedule === "cliff") {
                     const cliffDate = parseVestingDate(config.vestingStartDate);
                     const cliffTimestamp = new BN(Math.floor((cliffDate?.getTime() || Date.now()) / 1000));
-                    vestingType = { cliff: [cliffTimestamp] } as any;
+                    const cliffPercentage = new BN(parseInt(config.cliffAmount || "0"));
+                    vestingType = { cliff: [cliffTimestamp, cliffPercentage] } as any;
                 }
 
                 // Adicionar instrução CreateVesting

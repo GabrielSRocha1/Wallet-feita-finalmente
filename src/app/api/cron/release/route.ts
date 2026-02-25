@@ -54,6 +54,15 @@ const IDL: any = {
 };
 
 export async function GET(request: NextRequest) {
+    // SECURITY: CRON_SECRET to prevent unauthorized execution (Production-ready)
+    const CRON_SECRET = process.env.CRON_SECRET;
+    const authHeader = request.headers.get('authorization');
+
+    if (CRON_SECRET && authHeader !== `Bearer ${CRON_SECRET}`) {
+        console.warn("[Relayer] Unauthorized attempt to trigger cron.");
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     const RELAYER_PRIVATE_KEY = process.env.RELAYER_PRIVATE_KEY;
     if (!RELAYER_PRIVATE_KEY) {
         return NextResponse.json({ error: 'RELAYER_PRIVATE_KEY not configured' }, { status: 500 });
@@ -64,10 +73,13 @@ export async function GET(request: NextRequest) {
         const { Connection, Keypair, PublicKey, Transaction } = await import('@solana/web3.js');
         const { Program, AnchorProvider } = await import('@coral-xyz/anchor');
         const { getAssociatedTokenAddress, createAssociatedTokenAccountIdempotentInstruction } = await import('@solana/spl-token');
+        const { getRpcUrl, getProgramId, DEFAULT_NETWORK } = await import('@/utils/solana-config');
 
-        const PROGRAM_ID = new PublicKey("HMqYLNw1ABgVeFcP2PmwDv6bibcm9y318aTo2g25xQMm");
-        const RPC_URL = process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.devnet.solana.com';
+        const NETWORK = (process.env.NEXT_PUBLIC_SOLANA_NETWORK || DEFAULT_NETWORK) as 'mainnet' | 'devnet';
+        const PROGRAM_ID = new PublicKey(getProgramId(NETWORK));
+        const RPC_URL = getRpcUrl(NETWORK);
 
+        console.log(`[Relayer] Initializing on ${NETWORK}...`);
         const connection = new Connection(RPC_URL, 'confirmed');
         const relayerKeypair = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(RELAYER_PRIVATE_KEY)));
 
@@ -87,14 +99,12 @@ export async function GET(request: NextRequest) {
         };
 
         const provider = new AnchorProvider(connection, wallet as any, { commitment: 'confirmed' });
-        // Na v0.30+, o Program recebe idl e provider. O programId deve estar no IDL ou passado separadamente se necessário
         const program = new Program(IDL, provider);
 
         const splTokenProgramId = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
         const token2022ProgramId = new PublicKey("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb");
 
         console.log("[Relayer] Buscando contratos de vesting...");
-        // Usando as any para evitar erro de tipo no account namespace
         const vestingAccounts = await (program.account as any).vestingContract.all();
         console.log(`[Relayer] Encontrados ${vestingAccounts.length} contratos.`);
 
@@ -106,10 +116,12 @@ export async function GET(request: NextRequest) {
                 const contract = record.account as any;
                 const contractPubkey = record.publicKey;
 
+                // Skip if cancelled or fully released
                 if (contract.isCancelled || contract.releasedAmount.gte(contract.totalAmount)) {
                     continue;
                 }
 
+                // Skip if hasn't started yet
                 if (currentTime < contract.startTime.toNumber()) {
                     continue;
                 }
@@ -128,12 +140,15 @@ export async function GET(request: NextRequest) {
                     PROGRAM_ID
                 );
 
+                // Simulation/Check logic could be added here to avoid unnecessary tx costs
+                // For now, we try to claim.
+
                 console.log(`[Relayer] Processando claim para: ${contractPubkey.toBase58()}`);
 
                 const transaction = new Transaction();
                 transaction.add(
                     createAssociatedTokenAccountIdempotentInstruction(
-                        relayerKeypair.publicKey,
+                        relayerKeypair.publicKey, // Relayer pays for the ATA if it doesn't exist
                         beneficiaryTokenAccount,
                         contract.beneficiary,
                         contract.mint,
@@ -157,17 +172,20 @@ export async function GET(request: NextRequest) {
                 const tx = await provider.sendAndConfirm(transaction);
 
                 console.log(`[Relayer] Sucesso: ${tx}`);
-                results.push({ contract: contractPubkey.toBase58(), tx });
+                results.push({ contract: contractPubkey.toBase58(), tx, success: true });
 
             } catch (err: any) {
+                // Log and move to next contract (don't fail the whole cron)
                 console.error(`[Relayer] Erro no contrato ${record.publicKey.toBase58()}:`, err.message);
-                results.push({ contract: record.publicKey.toBase58(), error: err.message });
+                results.push({ contract: record.publicKey.toBase58(), error: err.message, success: false });
             }
         }
 
         return NextResponse.json({
             success: true,
-            processed: results.length,
+            network: NETWORK,
+            totalFound: vestingAccounts.length,
+            processed: results.filter(r => r.success).length,
             details: results
         });
 

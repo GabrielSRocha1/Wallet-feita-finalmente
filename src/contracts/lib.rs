@@ -4,7 +4,7 @@ use anchor_spl::token_2022::Token2022;
 use anchor_spl::associated_token::AssociatedToken;
 use anchor_spl::token_interface::{self, Mint, TokenAccount, TokenInterface};
 
-declare_id!("HMqYLNw1ABgVeFcP2PmwDv6bibcm9y318aTo2g25xQMm");
+declare_id!("DE9UHAY6UhxYfMTGBwzCoDRHphV6Xrcee8z1L8xJqydy");
 
 #[program]
 pub mod verum_vesting {
@@ -255,12 +255,29 @@ fn calculate_vested_amount(
                 .saturating_mul(elapsed)
                 .saturating_div(duration)) as u64
         }
-        VestingType::Cliff(cliff_time) => {
-            if current_time >= *cliff_time {
-                total
-            } else {
-                0
+        VestingType::Cliff(cliff_time, percentage) => {
+            if current_time < *cliff_time {
+                return 0;
             }
+            
+            // O valor inicial liberado (0 a 100%)
+            let cliff_amount = ((total as u128)
+                .saturating_mul(*percentage as u128)
+                .saturating_div(100)) as u64;
+
+            let remaining_total = total.saturating_sub(cliff_amount);
+            let post_cliff_duration = end.saturating_sub(*cliff_time) as u128;
+            let post_cliff_elapsed = current_time.saturating_sub(*cliff_time) as u128;
+
+            let linear_vested = if post_cliff_duration > 0 {
+                ((remaining_total as u128)
+                    .saturating_mul(post_cliff_elapsed)
+                    .saturating_div(post_cliff_duration)) as u64
+            } else {
+                remaining_total
+            };
+
+            cliff_amount.saturating_add(linear_vested)
         }
     }
 }
@@ -272,7 +289,7 @@ fn calculate_vested_amount(
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq)]
 pub enum VestingType {
     Linear,
-    Cliff(i64),
+    Cliff(i64, u64),
 }
 
 #[account]
@@ -292,7 +309,20 @@ pub struct VestingContract {
 }
 
 impl VestingContract {
-    pub const LEN: usize = 8 + 32 + 32 + 32 + 8 + 8 + 8 + 8 + 8 + 1 + 1 + 1 + 1; // 201 bytes aprox
+    pub const LEN: usize =
+        8 + // discriminator
+        32 + // creator
+        32 + // beneficiary
+        32 + // mint
+        8 + // total_amount
+        8 + // released_amount
+        8 + // start_time
+        8 + // end_time
+        8 + // contract_id
+        1 + 16 + // vesting_type (enum tag + max variant)
+        1 + // bump
+        1 + // is_cancelled
+        1;  // is_token_2022
 }
 
 #[error_code]

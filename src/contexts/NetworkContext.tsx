@@ -39,7 +39,8 @@ export function NetworkProvider({ children }: { children: ReactNode }) {
 
     const setNetwork = (newNetwork: Network) => {
         // 1. ISOLAMENTO DE REDE: Confirmação visual/log
-        console.log(`[Network Switch] Switching to ${newNetwork}. All subsequent RPC calls will be isolated to this network.`);
+        console.log(`%c[Network Switch] Switching globally to ${newNetwork.toUpperCase()}`, 'color: #EAB308; font-weight: bold; background: #111; padding: 2px 5px; border-radius: 4px;');
+        console.log(`[Isolamento] All subsequent RPC calls and Program IDs are now pointing to ${newNetwork}.`);
 
         setNetworkState(newNetwork);
         localStorage.setItem('verum_network', newNetwork);

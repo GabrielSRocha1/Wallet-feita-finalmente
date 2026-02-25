@@ -8,11 +8,14 @@ import { useNetwork } from "@/contexts/NetworkContext";
 import { parseVestingDate } from "@/utils/date-utils";
 import { PublicKey } from "@solana/web3.js";
 import { BN } from "@project-serum/anchor";
+import { PROGRAM_IDS } from "@/utils/solana-config";
 
 export default function ConfirmationPage() {
     const router = useRouter();
     const { network: currentNetwork } = useNetwork();
     const [showToast, setShowToast] = useState(false);
+    const [config, setConfig] = useState<any>(null);
+    const [recipients, setRecipients] = useState<any[]>([]);
 
     useEffect(() => {
         // Save the contract to the persistent list and clear drafts
@@ -22,8 +25,13 @@ export default function ConfirmationPage() {
                 const savedRecipients = localStorage.getItem("recipients_draft");
 
                 if (savedConfig && savedRecipients) {
-                    const config = JSON.parse(savedConfig);
-                    const recipients = JSON.parse(savedRecipients);
+                    const parsedConfig = JSON.parse(savedConfig);
+                    const parsedRecipients = JSON.parse(savedRecipients);
+                    setConfig(parsedConfig);
+                    setRecipients(parsedRecipients);
+
+                    const config = parsedConfig;
+                    const recipients = parsedRecipients;
 
                     // Comparison logic for status
                     const now = new Date();
@@ -65,6 +73,7 @@ export default function ConfirmationPage() {
                         try {
                             const mintPubkey = new PublicKey(config.selectedToken?.address || config.selectedToken?.mint);
                             const creatorPubkey = new PublicKey(senderAddress);
+                            const currentProgramIdStr = PROGRAM_IDS[currentNetwork] || PROGRAM_IDS['devnet'];
                             const [pda] = PublicKey.findProgramAddressSync(
                                 [
                                     Buffer.from("vesting"),
@@ -72,7 +81,7 @@ export default function ConfirmationPage() {
                                     mintPubkey.toBuffer(),
                                     new BN(contractIdValue).toArrayLike(Buffer, "le", 8)
                                 ],
-                                new PublicKey("HMqYLNw1ABgVeFcP2PmwDv6bibcm9y318aTo2g25xQMm")
+                                new PublicKey(currentProgramIdStr)
                             );
                             pdaAddress = pda.toBase58();
                         } catch (e) {
@@ -105,17 +114,19 @@ export default function ConfirmationPage() {
                     }
 
                     // SEND EMAILS
-                    recipients.forEach((recipient: any) => {
-                        if (recipient.email) {
+                    newContracts.forEach((contractEntry: any) => {
+                        const recipient = contractEntry.recipients[0];
+                        if (recipient && recipient.email) {
                             const contractDataForEmail = {
-                                tokenName: config.selectedToken?.name || "Token",
-                                tokenSymbol: config.selectedToken?.symbol || "TKN",
-                                totalAmount: recipient.amount,
-                                status: status,
-                                vestingStartDate: config.vestingStartDate,
-                                vestingDuration: config.vestingDuration,
-                                selectedTimeUnit: config.selectedTimeUnit,
-                                selectedSchedule: config.selectedSchedule
+                                tokenName: contractEntry.tokenName || "Token",
+                                tokenSymbol: contractEntry.tokenSymbol || "TKN",
+                                totalAmount: contractEntry.totalAmount,
+                                status: contractEntry.status,
+                                vestingStartDate: contractEntry.vestingStartDate,
+                                vestingDuration: contractEntry.vestingDuration,
+                                selectedTimeUnit: contractEntry.selectedTimeUnit,
+                                selectedSchedule: contractEntry.selectedSchedule,
+                                id: contractEntry.id
                             };
 
                             fetch('/api/send-email', {
@@ -208,60 +219,66 @@ export default function ConfirmationPage() {
                 <h1 className="text-[22px] font-bold mb-6 text-white">Revisar Contrato</h1>
 
                 {/* Tabs */}
-                <div className="flex items-center gap-8 mb-8 border-b border-white/5">
-                    <div className="flex flex-col pb-1">
-                        <span className="text-[15px] font-semibold text-gray-500">Falha (0)</span>
+                {recipients.length > 0 && (
+                    <div className="flex items-center gap-8 mb-8 border-b border-white/5">
+                        <div className="flex flex-col pb-1">
+                            <span className="text-[15px] font-semibold text-gray-500">Falha (0)</span>
+                        </div>
+                        <div className="flex flex-col border-b-2 border-[#EAB308] pb-1">
+                            <span className="text-[15px] font-semibold text-[#EAB308]">Sucesso ({recipients.length})</span>
+                        </div>
                     </div>
-                    <div className="flex flex-col border-b-2 border-[#EAB308] pb-1">
-                        <span className="text-[15px] font-semibold text-[#EAB308]">Sucesso (1)</span>
-                    </div>
-                </div>
+                )}
 
                 {/* Content */}
                 <div className="space-y-8">
-                    <div>
-                        <h2 className="text-[15px] text-white font-bold mb-5 tracking-wide">Destinatário 1</h2>
+                    {recipients.map((recipient, index) => (
+                        <div key={index}>
+                            <h2 className="text-[15px] text-white font-bold mb-5 tracking-wide">Destinatário {index + 1}</h2>
 
-                        <div className="space-y-6 bg-[#1A1A1A] p-5 rounded-2xl border border-white/5 shadow-inner">
-                            {/* Total Amount */}
-                            <div className="space-y-2">
-                                <p className="text-[14px] text-gray-400 font-medium tracking-tight">Quantidade Total</p>
-                                <div className="flex items-center gap-3 bg-black/40 p-3 rounded-xl border border-white/5">
-                                    <div className="w-6 h-6 rounded-full bg-[#EAB308] flex items-center justify-center overflow-hidden shadow-lg shrink-0">
-                                        <Image
-                                            alt="Token icon"
-                                            className="w-full h-full object-cover"
-                                            src="https://lh3.googleusercontent.com/aida-public/AB6AXuDELC6datmaXBtzPcglHQvij3C2uLarSwYfXazFnMbIez92A7-NvXV2X_NxWgAoLHVftJFDtEDcrRiJziKR3-u-etDFvhVxJ0ZWxPFihObSXPEYbTMDRrGQWQXR7l8FjYa6Jlhe_zigt0Je3Uc6JmU8hkdPacIspEg1P5vWHwk2B-VQQbcSnEID5mnokuGf7ma_gGeqe-A9Nu1MUBOJI7xnxJAjKfWTB1ZcOhqASWGfnzxmEU59p77RN13h3f0rZ9Wdb4Mm7qfmmOg"
-                                            width={24}
-                                            height={24}
-                                        />
-                                    </div>
-                                    <div className="flex items-baseline gap-2">
-                                        <span className="text-[16px] font-extrabold text-white">8 BDC</span>
-                                        <span className="text-[13px] text-gray-500 font-medium">($ 0)</span>
+                            <div className="space-y-6 bg-[#1A1A1A] p-5 rounded-2xl border border-white/5 shadow-inner">
+                                {/* Total Amount */}
+                                <div className="space-y-2">
+                                    <p className="text-[14px] text-gray-400 font-medium tracking-tight">Quantidade Total</p>
+                                    <div className="flex items-center gap-3 bg-black/40 p-3 rounded-xl border border-white/5">
+                                        <div className="w-6 h-6 rounded-full bg-[#EAB308] flex items-center justify-center overflow-hidden shadow-lg shrink-0">
+                                            {config?.selectedToken?.icon ? (
+                                                <img
+                                                    alt="Token icon"
+                                                    className="w-full h-full object-cover rounded-full"
+                                                    src={config.selectedToken.icon}
+                                                />
+                                            ) : (
+                                                <span className="material-symbols-outlined text-[14px] text-black">token</span>
+                                            )}
+                                        </div>
+                                        <div className="flex items-baseline gap-2">
+                                            <span className="text-[16px] font-extrabold text-white">{recipient.amount} {config?.selectedToken?.symbol}</span>
+                                        </div>
                                     </div>
                                 </div>
-                            </div>
 
-                            {/* Recipient Address */}
-                            <div className="space-y-2">
-                                <p className="text-[14px] font-bold text-white tracking-tight">Endereço Destinatários</p>
-                                <div className="flex items-center gap-3 bg-black/40 p-3 rounded-xl border border-white/5 group active:scale-[0.99] transition-all">
-                                    <div className="w-6 h-6 rounded-full bg-[#EAB308] flex items-center justify-center overflow-hidden shadow-lg shrink-0">
-                                        <Image
-                                            alt="Wallet icon"
-                                            className="w-full h-full object-cover"
-                                            src="https://lh3.googleusercontent.com/aida-public/AB6AXuCeVlKLfaMkZi1LOCPkjlscauHReitOAiqDKBDwA5W_VRHj8XCXhxvXLNO04CJghxgO7hXqpJ5twsvJrzY6ARkTmpMZn8B8beSDgk65lsQleKPMdL9hfvYcrfZawPMF-yl9B8oTVTxOZyFXhjkbPRoo3ALt2HsrhoKOfRLTBMO6TOe3MRfcy5LGYmWs-QfTkaKmD-NfcqEkADFp1-eQ62e5guLCzRV4U7rsSV5nJuYSR0r3GNI-6Ga7HR86gsDxe81dWBu-1Mvv9QQ"
-                                            width={24}
-                                            height={24}
-                                        />
+                                {/* Recipient Address */}
+                                <div className="space-y-2">
+                                    <p className="text-[14px] font-bold text-white tracking-tight">Endereço Destinatários</p>
+                                    <div className="flex items-center gap-3 bg-black/40 p-3 rounded-xl border border-white/5 group active:scale-[0.99] transition-all">
+                                        <div className="w-6 h-6 rounded-full bg-[#EAB308] flex items-center justify-center overflow-hidden shadow-lg shrink-0">
+                                            <span className="material-symbols-outlined text-[14px] text-black">wallet</span>
+                                        </div>
+                                        <span className="text-[15px] text-gray-300 font-mono tracking-tight">
+                                            {recipient.walletAddress ? `${recipient.walletAddress.substring(0, 8)}...${recipient.walletAddress.substring(recipient.walletAddress.length - 6)}` : ""}
+                                        </span>
+                                        <span
+                                            className="material-symbols-outlined text-gray-500 text-sm ml-auto cursor-pointer hover:text-white"
+                                            onClick={() => navigator.clipboard.writeText(recipient.walletAddress)}
+                                        >
+                                            content_copy
+                                        </span>
                                     </div>
-                                    <span className="text-[15px] text-gray-300 font-mono tracking-tight">Ctauy54N...5jppZt</span>
-                                    <span className="material-symbols-outlined text-gray-500 text-sm ml-auto">content_copy</span>
                                 </div>
                             </div>
                         </div>
-                    </div>
+                    ))}
                 </div>
             </main>
         </div>
