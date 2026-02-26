@@ -12,7 +12,7 @@ export const RPC_ENDPOINTS = {
 // Program IDs (Isolamento de Rede)
 // Garante que o ID correto seja usado para cada rede
 export const PROGRAM_IDS = {
-    mainnet: 'GtQ7jfbLJTfDVSAYPr3GFniThLAYkrmnvp2zgVLCpbpm',
+    mainnet: 'DE9UHAY6UhxYfMTGBwzCoDRHphV6Xrcee8z1L8xJqydy',
     devnet: 'HMqYLNw1ABgVeFcP2PmwDv6bibcm9y318aTo2g25xQMm'
 };
 
