@@ -2,7 +2,7 @@ import { createSolanaClient, devnet, mainnet } from 'gill';
 
 // Configuração da rede
 // Hierarchy: Environment Variable > Default 'devnet'
-export const DEFAULT_NETWORK = (process.env.NEXT_PUBLIC_SOLANA_NETWORK || 'devnet') as 'mainnet' | 'devnet';
+export const DEFAULT_NETWORK = (process.env.NEXT_PUBLIC_SOLANA_NETWORK || 'mainnet') as 'mainnet' | 'devnet';
 
 export const RPC_ENDPOINTS = {
     mainnet: 'https://api.mainnet-beta.solana.com',

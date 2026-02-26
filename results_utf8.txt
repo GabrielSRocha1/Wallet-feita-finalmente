@@ -1,0 +1,29 @@
+﻿Total accounts: 3
+=====
+ID: 7WP8nGL5Vs8vRS3P8NsJRfgsvHbsrgeR6gYb6qh7Hxxu
+Buffer length: 164
+VestingType tag [144]: 0
+Offset [161]: 0
+Offset [162]: 0 <-- is_cancelled?
+Offset [163]: 0 <-- is_token2022?
+startTime: 1772100000 -> 2026-02-26T10:00:00.000Z
+endTime: 1772186400 -> 2026-02-27T10:00:00.000Z
+=====
+ID: DJYRkTWfU2xVR9yMqFCNfeBazf9cnsXDi7kuueG8uhtx
+Buffer length: 164
+VestingType tag [144]: 0
+Offset [161]: 0
+Offset [162]: 0 <-- is_cancelled?
+Offset [163]: 0 <-- is_token2022?
+startTime: 1772120580 -> 2026-02-26T15:43:00.000Z
+endTime: 1772206980 -> 2026-02-27T15:43:00.000Z
+=====
+ID: gxLRHQGgpzrk2x3ku7JSBpsp4oJ11fFpKPxFGWjLpjY
+Buffer length: 164
+VestingType tag [144]: 0
+Offset [161]: 0
+Offset [162]: 0 <-- is_cancelled?
+Offset [163]: 0 <-- is_token2022?
+startTime: 1772069640 -> 2026-02-26T01:34:00.000Z
+endTime: 1772156040 -> 2026-02-27T01:34:00.000Z
+

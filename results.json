@@ -1,0 +1,38 @@
+[
+  {
+    "id": "7WP8nGL5Vs8vRS3P8NsJRfgsvHbsrgeR6gYb6qh7Hxxu",
+    "len": 164,
+    "vestingTypeTag": 0,
+    "contractId": 1772100134563,
+    "startTime": "2026-02-26T10:00:00.000Z",
+    "endTime": "2026-02-27T10:00:00.000Z",
+    "b160": 0,
+    "b161": 0,
+    "b162": 0,
+    "b163": 0
+  },
+  {
+    "id": "DJYRkTWfU2xVR9yMqFCNfeBazf9cnsXDi7kuueG8uhtx",
+    "len": 164,
+    "vestingTypeTag": 0,
+    "contractId": 1772120284548,
+    "startTime": "2026-02-26T15:43:00.000Z",
+    "endTime": "2026-02-27T15:43:00.000Z",
+    "b160": 0,
+    "b161": 0,
+    "b162": 0,
+    "b163": 0
+  },
+  {
+    "id": "gxLRHQGgpzrk2x3ku7JSBpsp4oJ11fFpKPxFGWjLpjY",
+    "len": 164,
+    "vestingTypeTag": 0,
+    "contractId": 1772069117175,
+    "startTime": "2026-02-26T01:34:00.000Z",
+    "endTime": "2026-02-27T01:34:00.000Z",
+    "b160": 0,
+    "b161": 0,
+    "b162": 0,
+    "b163": 0
+  }
+]
