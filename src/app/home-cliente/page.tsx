@@ -404,11 +404,11 @@ export default function HomeClientePage() {
 
         // 1. Cancelado (Strict String)
         if (activeFilter === "cancelado") {
-            return rawStatus === "cancelado" || contract.revoked === true;
+            return rawStatus === "cancelado" || contract.revoked === true || contract.status === "cancelado";
         }
 
         // If cancelled, do not show in other tabs (unless explicitly desired, but standard is hide)
-        if (rawStatus === "cancelado" || contract.revoked === true) return false;
+        if (rawStatus === "cancelado" || contract.revoked === true || contract.status === "cancelado") return false;
 
         // 2. Completo (Strict String)
         if (activeFilter === "completo") {
@@ -709,7 +709,7 @@ export default function HomeClientePage() {
                                                     return unlocked.toLocaleString(undefined, { maximumFractionDigits: 2 });
                                                 })()} {contract.selectedToken?.symbol}
                                             </span>
-                                            <span className="text-[9px] font-mono opacity-60">of {contract.totalAmount} {contract.selectedToken?.symbol}</span>
+                                            <span className="text-[9px] font-mono opacity-60">of {(contract.totalAmount || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })} {contract.selectedToken?.symbol}</span>
                                         </div>
                                     </div>
                                     <div className="h-10 w-px bg-white/5 hidden sm:block mx-3"></div>
@@ -895,22 +895,20 @@ export default function HomeClientePage() {
                         <span className="text-[8px] sm:text-[9px] font-black uppercase tracking-widest text-center">Alterado</span>
                     </button>
 
-                    {/* CANCELADO - Apenas Admin */}
-                    {isAdminUser && (
-                        <button
-                            onClick={() => {
-                                setActiveFilter("cancelado");
-                                setSearchQuery("");
-                            }}
-                            className={`flex flex-col items-center gap-1 group flex-1 cursor-pointer transition-all ${activeFilter === 'cancelado' && !searchQuery ? 'text-red-500' : 'text-zinc-500'}`}
-                        >
-                            <div className="relative">
-                                <span className="material-icons-round text-xl sm:text-2xl">cancel</span>
-                                {activeFilter === 'cancelado' && !searchQuery && <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 bg-red-500 rounded-full animate-pulse"></div>}
-                            </div>
-                            <span className="text-[8px] sm:text-[9px] font-black uppercase tracking-widest text-center">Cancelado</span>
-                        </button>
-                    )}
+                    {/* CANCELADO - Visível para todos para transparência */}
+                    <button
+                        onClick={() => {
+                            setActiveFilter("cancelado");
+                            setSearchQuery("");
+                        }}
+                        className={`flex flex-col items-center gap-1 group flex-1 cursor-pointer transition-all ${activeFilter === 'cancelado' && !searchQuery ? 'text-red-500' : 'text-zinc-500'}`}
+                    >
+                        <div className="relative">
+                            <span className="material-icons-round text-xl sm:text-2xl">cancel</span>
+                            {activeFilter === 'cancelado' && !searchQuery && <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 bg-red-500 rounded-full animate-pulse"></div>}
+                        </div>
+                        <span className="text-[8px] sm:text-[9px] font-black uppercase tracking-widest text-center">Cancelado</span>
+                    </button>
                 </nav>
             )}
             {/* Wallet Connection Modal */}

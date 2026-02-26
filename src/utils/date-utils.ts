@@ -8,12 +8,10 @@
  * @returns Date object or null if invalid
  */
 export const parseVestingDate = (dateStr: any): Date | null => {
-    if (!dateStr || dateStr.includes?.('dd/mm/yyyy')) return null;
+    if (!dateStr || (typeof dateStr === 'string' && dateStr.includes('dd/mm/yyyy'))) return null;
 
     // Handle number (timestamp)
     if (typeof dateStr === 'number') {
-        // Solana timestamps are in seconds. JS needs milliseconds.
-        // If it's too small (e.g. year 1970/1971), it's probably seconds.
         const ms = dateStr < 10000000000 ? dateStr * 1000 : dateStr;
         return new Date(ms);
     }
@@ -21,12 +19,13 @@ export const parseVestingDate = (dateStr: any): Date | null => {
     if (typeof dateStr !== 'string') return null;
 
     try {
-        // Normalizes variations (some might use "/" or "-" or have/not have comma)
-        const normalized = dateStr.replace(',', ' ').replace('  ', ' ').trim();
-        const parts = normalized.split(' ');
+        // Normalizes string: remove commas, extra spaces
+        const cleanStr = dateStr.replace(',', ' ').replace(/\s+/g, ' ').trim();
+        const parts = cleanStr.split(' ');
 
         if (parts.length < 2) {
-            // Check if it's just a date without time
+            // ISO format or date-only fallback
+            if (dateStr.includes('-')) return new Date(dateStr);
             if (dateStr.includes('/')) {
                 const [d, m, y] = dateStr.split('/').map(Number);
                 if (!isNaN(d) && !isNaN(m) && !isNaN(y)) return new Date(y, m - 1, d);
@@ -36,17 +35,26 @@ export const parseVestingDate = (dateStr: any): Date | null => {
 
         const datePart = parts[0];
         const timePart = parts[1];
+        const ampm = parts[2]?.toUpperCase(); // handle "12:43 AM"
 
         const [day, month, year] = datePart.split('/').map(Number);
-        const [hour, minute] = timePart.split(':').map(Number);
+
+        // Clean non-digits from time part (e.g. handle "12:43:00")
+        const [hRaw, mRaw] = timePart.split(':');
+        let hour = parseInt(hRaw);
+        let minute = parseInt(mRaw);
+
+        if (ampm === 'PM' && hour < 12) hour += 12;
+        if (ampm === 'AM' && hour === 12) hour = 0;
 
         if (isNaN(day) || isNaN(month) || isNaN(year) || isNaN(hour) || isNaN(minute)) {
-            return null;
+            // Final fallback to JS native parser if it looks like an ISO string or similar
+            const native = new Date(dateStr);
+            return isNaN(native.getTime()) ? null : native;
         }
 
         return new Date(year, month - 1, day, hour, minute);
     } catch (e) {
-        console.error("[DateUtils] Error parsing date:", dateStr, e);
         return null;
     }
 };
@@ -103,7 +111,24 @@ export const calculateVestingProgress = (contract: any, nowMillis: number = Date
         return cliffPercentage + ((1 - cliffPercentage) * linearProgress);
     }
 
-    // Linear logic
+    // Case for blockchain contracts where duration is already in seconds
+    if (!contract.selectedTimeUnit && typeof contract.vestingDuration === 'number') {
+        const end = start + (contract.vestingDuration * 1000);
+        if (nowMillis >= end) return 1;
+        if (end <= start) return 1;
+
+        if (contract.selectedSchedule && contract.selectedSchedule.toLowerCase().includes('cliff')) {
+            if (nowMillis < start) return 0;
+            const cliffPercentage = parseInt(contract.cliffAmount || "0") / 100;
+            const linearProgress = (nowMillis - start) / (end - start);
+            return cliffPercentage + ((1 - cliffPercentage) * linearProgress);
+        }
+
+        const rawP = (nowMillis - start) / (end - start);
+        return Math.min(1, Math.max(0, rawP));
+    }
+
+    // Default logic (UI Drafts / Local Storage)
     const duration = parseInt(contract.vestingDuration || "1");
     const unit = (contract.selectedTimeUnit || "").toLowerCase();
 
@@ -118,6 +143,13 @@ export const calculateVestingProgress = (contract: any, nowMillis: number = Date
 
     const end = endDateObj.getTime();
     if (end <= start) return 1;
+
+    if (contract.selectedSchedule && contract.selectedSchedule.toLowerCase().includes('cliff')) {
+        if (nowMillis < start) return 0;
+        const cliffPercentage = parseInt(contract.cliffAmount || "0") / 100;
+        const linearProgress = (nowMillis - start) / (end - start);
+        return cliffPercentage + ((1 - cliffPercentage) * linearProgress);
+    }
 
     const rawP = (nowMillis - start) / (end - start);
     return Math.min(1, Math.max(0, rawP));

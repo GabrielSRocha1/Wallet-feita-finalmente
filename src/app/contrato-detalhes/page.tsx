@@ -16,6 +16,7 @@ import { getAssociatedTokenAddress, TOKEN_PROGRAM_ID, createAssociatedTokenAccou
 import { Program, AnchorProvider, Idl } from '@project-serum/anchor';
 import { detectTokenProgram } from "@/utils/tokenProgram";
 import { PROGRAM_IDS } from "@/utils/solana-config";
+import { fetchContractById } from "@/utils/blockchain-scanner";
 
 const TOKEN_2022_PROGRAM_ID = new PublicKey("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb");
 
@@ -123,11 +124,30 @@ export default function VestingContractDetailsPage() {
         }
     };
 
+    const refreshContractData = async (contractId: string) => {
+        try {
+            const freshData = await fetchContractById(contractId, currentNetwork as any);
+            if (freshData) {
+                console.log("[Details] Blockchain Sync Success:", freshData.status);
+                setContractData((prev: any) => ({
+                    ...prev,
+                    ...freshData,
+                    // Mantém campos UI se existirem no prev
+                    tokenSymbol: freshData.selectedToken?.symbol || prev?.tokenSymbol,
+                    tokenName: freshData.selectedToken?.name || prev?.tokenName,
+                    tokenIcon: freshData.selectedToken?.icon || prev?.tokenIcon,
+                }));
+                // Update Storage
+                localStorage.setItem("selected_contract", JSON.stringify({ ...contractData, ...freshData }));
+            }
+        } catch (e) {
+            console.error("[Details] Sync Error:", e);
+        }
+    };
+
     useEffect(() => {
         const interval = setInterval(() => {
             if (!contractData) return;
-
-            // Engine de Automação em Tempo Real
             const stats = getDynamicVesting();
             let hasChanges = false;
             let updates: any = {};
@@ -140,32 +160,21 @@ export default function VestingContractDetailsPage() {
                 }
             }
 
-            // 1. Check for Auto-Completion
             if (stats.progress >= 100 && contractData.status !== "completo" && contractData.status !== "cancelado") {
                 updates.status = "completo";
                 hasChanges = true;
             }
 
-            // 2. Check for Auto-Claim
             if (contractData.autoClaim && contractData.claimedAmount !== stats.unlocked && contractData.status !== "cancelado") {
                 updates.claimedAmount = stats.unlocked;
                 hasChanges = true;
             }
 
-            if (hasChanges) {
-                updateContract(updates);
-            } else {
-                // Just force a re-render for UI sync
-                setContractData((prev: any) => prev ? { ...prev } : null);
-            }
-        }, 5000); // Check and refresh every 5s for precision
+            if (hasChanges) updateContract(updates);
+            else setContractData((prev: any) => prev ? { ...prev } : null);
+        }, 5000);
 
-        // 1. Try to load specific selected contract
         const selectedStr = localStorage.getItem("selected_contract");
-        const savedConfig = localStorage.getItem("contract_draft");
-        const savedRecipients = localStorage.getItem("recipients_draft");
-
-        // 2. Load Wallet Address
         const connectedAddress = getWalletCookie();
         if (connectedAddress) {
             setWalletAddress(connectedAddress);
@@ -177,65 +186,26 @@ export default function VestingContractDetailsPage() {
                 const contract = JSON.parse(selectedStr);
                 const contractNetwork = contract.network || 'devnet';
 
-                if (contract && contractNetwork !== currentNetwork) {
-                    console.warn(`[Network] Contract network (${contractNetwork}) != Current network (${currentNetwork}). Redirecting...`);
+                if (contractNetwork !== currentNetwork) {
                     router.replace('/home-cliente');
                     return;
                 }
 
-                if (contract) {
-                    setContractData({
-                        ...contract,
-                        tokenName: contract.selectedToken?.name || "Token",
-                        tokenSymbol: contract.selectedToken?.symbol || "TKN",
-                        tokenIcon: contract.selectedToken?.icon,
-                        status: contract.status || "Bloqueado",
-                        unlockedAmount: contract.unlockedAmount || 0,
-                        claimedAmount: contract.claimedAmount || 0,
-                        mintAddress: contract.selectedToken?.mint || contract.mintAddress || "DmSnH6gmikCc4s4oWuRGXZXr8wVfrbykWfby",
-                        senderAddress: contract.senderAddress || connectedAddress || "CtauGKgV4jmVyFQ1SWcGjy3s5jppZt",
-                        recipientAddress: contract.recipients?.[0]?.walletAddress || "Indefinido",
-                        vestingStartDate: contract.vestingStartDate
-                    });
-                }
-            } catch (e) {
-                console.error("Error parsing selected contract:", e);
-            }
-        } else if (savedConfig && savedRecipients) {
-            try {
-                const config = JSON.parse(savedConfig);
-                const configNetwork = config.network || 'devnet'; // Check draft network if applicable
+                setContractData({
+                    ...contract,
+                    tokenName: contract.selectedToken?.name || "Token",
+                    tokenSymbol: contract.selectedToken?.symbol || "TKN",
+                    status: contract.status || "Bloqueado",
+                });
 
-                if (configNetwork !== currentNetwork) {
-                    router.replace('/home-cliente');
-                    return;
+                // Tenta Sincronizar com Blockchain On-Load
+                if (contract.id && contract.id.length > 32) {
+                    refreshContractData(contract.id);
                 }
-                const recipients = JSON.parse(savedRecipients);
-
-                if (config && recipients && Array.isArray(recipients)) {
-                    const totalAmount = recipients.reduce((sum: number, r: any) => sum + (parseFloat(r.amount) || 0), 0);
-
-                    setContractData({
-                        ...config,
-                        recipients,
-                        totalAmount,
-                        tokenName: config.selectedToken?.name || "Token",
-                        tokenSymbol: config.selectedToken?.symbol || "TKN",
-                        tokenIcon: config.selectedToken?.icon,
-                        status: "Bloqueado",
-                        unlockedAmount: 0,
-                        claimedAmount: 0,
-                        mintAddress: config.selectedToken?.mintAddress || "DmSnH6gmikCc4s4oWuRGXZXr8wVfrbykWfby",
-                        senderAddress: connectedAddress || "CtauGKgV4jmVyFQ1SWcGjy3s5jppZt",
-                        recipientAddress: recipients[0]?.walletAddress || "Indefinido",
-                        vestingStartDate: config.vestingStartDate
-                    });
-                }
-            } catch (e) {
-                console.error("Error parsing draft data:", e);
-            }
+            } catch (e) { console.error(e); }
         }
         setLoading(false);
+        return () => clearInterval(interval);
     }, [currentNetwork, router]);
 
     // Helper functions for display
@@ -271,6 +241,11 @@ export default function VestingContractDetailsPage() {
     };
 
     const calculateEndDate = () => {
+        // Se já temos a data de término formatada (vindo do scanner da blockchain), use-a.
+        if (contractData?.onChain && contractData?.vestingEndDate) {
+            return contractData.vestingEndDate;
+        }
+
         const startDate = parseVestingDate(contractData.vestingStartDate);
         if (!startDate || !contractData?.vestingDuration) {
             return "Indefinida";
@@ -432,7 +407,10 @@ export default function VestingContractDetailsPage() {
 
             await connection.confirmTransaction(signature, 'confirmed');
 
+            // Atualiza localmente e sincroniza com a blockchain
             updateContract({ status: "cancelado" });
+            if (contractData.id) refreshContractData(contractData.id);
+
             setIsCancelModalOpen(false);
             setToastMessage("Contrato cancelado com sucesso e tokens devolvidos!");
             setShowToast(true);
@@ -540,6 +518,8 @@ export default function VestingContractDetailsPage() {
                 recipientAddress: newAddress,
                 status: "alterado"
             });
+
+            if (contractData.id) refreshContractData(contractData.id);
 
             setIsChangeRecipientModalOpen(false);
             setToastMessage("Destinatário e status atualizados com sucesso!");
@@ -746,10 +726,11 @@ export default function VestingContractDetailsPage() {
 
             await connection.confirmTransaction(signature, 'confirmed');
 
-            // Atualiza o estado local do UI apenas após sucesso on-chain
+            // Atualiza o estado local e sincroniza com a blockchain para pegar o novo release_amount
             updateContract({
                 claimedAmount: stats.unlocked
             });
+            if (contractData.id) refreshContractData(contractData.id);
 
             setToastMessage(`${availableToClaim.toFixed(4)} ${contractData.tokenSymbol} reivindicados com sucesso na Solana!`);
             setShowToast(true);
@@ -1022,10 +1003,10 @@ export default function VestingContractDetailsPage() {
                     <div className="relative h-48 mt-8 pl-8 pb-10">
                         {/* Y-Axis Labels */}
                         <div className="absolute left-0 top-0 h-48 flex flex-col justify-between text-[8px] text-zinc-600 font-bold pr-2 border-r border-zinc-800">
-                            <span>{contractData.totalAmount}</span>
-                            <span>{Math.round(contractData.totalAmount * 0.75)}</span>
-                            <span>{Math.round(contractData.totalAmount * 0.50)}</span>
-                            <span>{Math.round(contractData.totalAmount * 0.25)}</span>
+                            <span>{Number(contractData.totalAmount || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+                            <span>{Number(Math.round((contractData.totalAmount || 0) * 0.75)).toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+                            <span>{Number(Math.round((contractData.totalAmount || 0) * 0.50)).toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+                            <span>{Number(Math.round((contractData.totalAmount || 0) * 0.25)).toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
                             <span>0</span>
                         </div>
 
