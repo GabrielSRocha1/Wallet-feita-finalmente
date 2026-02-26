@@ -31,14 +31,39 @@ export default function HomeClientePage() {
 
     useEffect(() => {
         const fetchContracts = async () => {
-            // Tenta buscar no backend se estiver conectado
             if (publicKey) {
                 try {
                     const res = await fetch(`/api/contracts?wallet=${publicKey}`);
                     const data = await res.json();
                     if (data.success && Array.isArray(data.contracts)) {
-                        setContracts(data.contracts);
-                        localStorage.setItem('created_contracts', JSON.stringify(data.contracts));
+                        const local = localStorage.getItem('created_contracts');
+                        let merged = [...data.contracts];
+
+                        if (local) {
+                            try {
+                                const parsed = JSON.parse(local);
+                                if (Array.isArray(parsed)) {
+                                    parsed.forEach(pc => {
+                                        if (!merged.find(mc => mc.id === pc.id)) {
+                                            merged.push(pc);
+                                        }
+                                    });
+                                }
+                            } catch (e) { }
+                        }
+
+                        // Sincroniza pro backend contratos locais que o admin possui mas o backend não
+                        const missingInBackend = merged.filter(c => !data.contracts.find((mc: any) => mc.id === c.id));
+                        if (isAdminUser && missingInBackend.length > 0) {
+                            fetch('/api/contracts', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ newContracts: missingInBackend })
+                            }).catch(() => { });
+                        }
+
+                        setContracts(merged);
+                        localStorage.setItem('created_contracts', JSON.stringify(merged));
                         return; // Se deu certo, sai cedo
                     }
                 } catch (e) {
@@ -61,7 +86,7 @@ export default function HomeClientePage() {
         };
 
         fetchContracts();
-    }, [publicKey]);
+    }, [publicKey, isAdminUser]);
 
     // Automação de Status e Auto-reivindicação
     useEffect(() => {
@@ -443,7 +468,7 @@ export default function HomeClientePage() {
                                 Limpar Dados
                             </button>
                         )}
-                        {connected && isAdminUser && <NetworkSelector />}
+                        {connected && <NetworkSelector />}
 
                         {!connected ? (
                             <button

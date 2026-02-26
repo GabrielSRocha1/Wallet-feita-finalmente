@@ -798,7 +798,7 @@ export default function VestingContractDetailsPage() {
                     </div>
 
                     <div className="flex items-center gap-3">
-                        {isAdminUser && <NetworkSelector />}
+                        <NetworkSelector />
                         <div className="relative">
                             <button
                                 onClick={() => setIsWalletDropdownOpen(!isWalletDropdownOpen)}
