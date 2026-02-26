@@ -105,8 +105,15 @@ export default function ConfirmationPage() {
                         newContracts.push(contractEntry);
                     }
 
-                    // Save all new contracts
+                    // Save all new contracts locally (fallback/cache)
                     localStorage.setItem("created_contracts", JSON.stringify([...newContracts, ...existing]));
+
+                    // Save all new contracts to the Backend
+                    fetch('/api/contracts', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ newContracts })
+                    }).catch(e => console.error("Error saving to backend:", e));
 
                     // Set the first one as selected contract for immediate viewing
                     if (newContracts.length > 0) {

@@ -30,18 +30,38 @@ export default function HomeClientePage() {
     }, []);
 
     useEffect(() => {
-        const saved = localStorage.getItem("created_contracts");
-        if (saved) {
-            try {
-                const parsed = JSON.parse(saved);
-                if (Array.isArray(parsed)) {
-                    setContracts(parsed);
+        const fetchContracts = async () => {
+            // Tenta buscar no backend se estiver conectado
+            if (publicKey) {
+                try {
+                    const res = await fetch(`/api/contracts?wallet=${publicKey}`);
+                    const data = await res.json();
+                    if (data.success && Array.isArray(data.contracts)) {
+                        setContracts(data.contracts);
+                        localStorage.setItem('created_contracts', JSON.stringify(data.contracts));
+                        return; // Se deu certo, sai cedo
+                    }
+                } catch (e) {
+                    console.error("Error loading contracts from API:", e);
                 }
-            } catch (e) {
-                console.error("Error loading contracts:", e);
             }
-        }
-    }, []);
+
+            // Fallback para o local (caso API falhe ou visitante anônimo)
+            const saved = localStorage.getItem("created_contracts");
+            if (saved) {
+                try {
+                    const parsed = JSON.parse(saved);
+                    if (Array.isArray(parsed)) {
+                        setContracts(parsed);
+                    }
+                } catch (e) {
+                    console.error("Error loading contracts from fallback:", e);
+                }
+            }
+        };
+
+        fetchContracts();
+    }, [publicKey]);
 
     // Automação de Status e Auto-reivindicação
     useEffect(() => {

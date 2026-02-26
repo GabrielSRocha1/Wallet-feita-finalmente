@@ -306,6 +306,13 @@ export default function VestingContractDetailsPage() {
                 console.error("Error updating contracts list:", e);
             }
         }
+
+        // 4. Update Backend
+        fetch('/api/contracts', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ newContracts: [updatedContract] })
+        }).catch(e => console.error("Error syncing update to backend:", e));
     };
 
     const handleCancel = () => {
