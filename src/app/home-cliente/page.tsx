@@ -10,6 +10,7 @@ import { useNetwork } from "@/contexts/NetworkContext";
 import ConnectWalletModal from "@/components/ConnectWalletModal";
 import NetworkSelector from "@/components/NetworkSelector";
 import { parseVestingDate, calculateVestingProgress } from "@/utils/date-utils";
+import { scanBlockchainContracts } from "@/utils/blockchain-scanner";
 
 export default function HomeClientePage() {
     const router = useRouter();
@@ -22,6 +23,7 @@ export default function HomeClientePage() {
     const [activeFilter, setActiveFilter] = useState("em-andamento");
     const [searchQuery, setSearchQuery] = useState("");
     const [tick, setTick] = useState(0);
+    const [isSyncingBlockchain, setIsSyncingBlockchain] = useState(false);
 
     // Ticker para atualizações em tempo real
     useEffect(() => {
@@ -33,45 +35,71 @@ export default function HomeClientePage() {
         const fetchContracts = async () => {
             if (publicKey) {
                 try {
+                    // 1. Busca do Backend (Supabase)
                     const res = await fetch(`/api/contracts?wallet=${publicKey}`);
                     const data = await res.json();
+
+                    let baseContracts: any[] = [];
                     if (data.success && Array.isArray(data.contracts)) {
-                        const local = localStorage.getItem('created_contracts');
-                        let merged = [...data.contracts];
-
-                        if (local) {
-                            try {
-                                const parsed = JSON.parse(local);
-                                if (Array.isArray(parsed)) {
-                                    parsed.forEach(pc => {
-                                        if (!merged.find(mc => mc.id === pc.id)) {
-                                            merged.push(pc);
-                                        }
-                                    });
-                                }
-                            } catch (e) { }
-                        }
-
-                        // Sincroniza pro backend contratos locais que o admin possui mas o backend não
-                        const missingInBackend = merged.filter(c => !data.contracts.find((mc: any) => mc.id === c.id));
-                        if (isAdminUser && missingInBackend.length > 0) {
-                            fetch('/api/contracts', {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ newContracts: missingInBackend })
-                            }).catch(() => { });
-                        }
-
-                        setContracts(merged);
-                        localStorage.setItem('created_contracts', JSON.stringify(merged));
-                        return; // Se deu certo, sai cedo
+                        baseContracts = data.contracts;
                     }
+
+                    // 2. Busca do Blockchain (Sync Direto)
+                    setIsSyncingBlockchain(true);
+                    const onChainContracts = await scanBlockchainContracts(publicKey, currentNetwork, isAdminUser);
+                    setIsSyncingBlockchain(false);
+
+                    // 3. Busca do LocalStorage
+                    const local = localStorage.getItem('created_contracts');
+                    let localParsed: any[] = [];
+                    if (local) {
+                        try {
+                            localParsed = JSON.parse(local);
+                        } catch (e) { }
+                    }
+
+                    // 4. Merge Inteligente (Deduplicação por ID)
+                    // Prioridade: Blockchain > Backend > Local
+                    const mergedMap = new Map();
+
+                    // Adiciona locais primeiro (menor prioridade)
+                    localParsed.forEach(c => mergedMap.set(c.id, c));
+
+                    // Sobrescreve com backend
+                    baseContracts.forEach(c => mergedMap.set(c.id, c));
+
+                    // Sobrescreve com blockchain (Verdade absoluta)
+                    onChainContracts.forEach(c => {
+                        const existing = mergedMap.get(c.id);
+                        if (existing) {
+                            // Preserva metadados que só o backend/local tem (como ícones personalizados ou títulos editados)
+                            mergedMap.set(c.id, { ...existing, ...c, reclaimed: true });
+                        } else {
+                            mergedMap.set(c.id, c);
+                        }
+                    });
+
+                    const merged = Array.from(mergedMap.values());
+
+                    // 5. Sincroniza pro backend contratos que estão no blockchain/local mas não no backend
+                    const missingInBackend = merged.filter(c => !baseContracts.find((mc: any) => mc.id === c.id));
+                    if (isAdminUser && missingInBackend.length > 0) {
+                        fetch('/api/contracts', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ newContracts: missingInBackend })
+                        }).catch(() => { });
+                    }
+
+                    setContracts(merged);
+                    localStorage.setItem('created_contracts', JSON.stringify(merged));
+                    return;
                 } catch (e) {
-                    console.error("Error loading contracts from API:", e);
+                    console.error("Error loading contracts from API/Blockchain:", e);
                 }
             }
 
-            // Fallback para o local (caso API falhe ou visitante anônimo)
+            // Fallback para o local (caso API/Blockchain falhe)
             const saved = localStorage.getItem("created_contracts");
             if (saved) {
                 try {
@@ -86,7 +114,7 @@ export default function HomeClientePage() {
         };
 
         fetchContracts();
-    }, [publicKey, isAdminUser]);
+    }, [publicKey, isAdminUser, currentNetwork]);
 
     // Automação de Status e Auto-reivindicação
     useEffect(() => {
@@ -452,12 +480,12 @@ export default function HomeClientePage() {
 
             {/* Header - Standardized */}
             <header className="fixed top-0 left-1/2 -translate-x-1/2 w-full max-w-screen-md z-[100] bg-black/80 backdrop-blur-md border-b border-white/5 safe-header">
-                <div className="px-4 py-4 flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                        <span className="text-[#EAB308] font-bold text-lg tracking-wide gold-text-gradient">Verum Vesting</span>
+                <div className="px-4 py-4 flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 shrink-0">
+                        <span className="text-[#EAB308] font-bold text-base sm:text-lg tracking-wide gold-text-gradient whitespace-nowrap">Verum Vesting</span>
                     </div>
 
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-2 sm:gap-3 flex-nowrap shrink-0">
                         {connected && isAdminUser && currentNetwork !== 'mainnet' && (
                             <button
                                 onClick={handleClearTests}
@@ -481,7 +509,7 @@ export default function HomeClientePage() {
                             <div className="relative" ref={dropdownRef}>
                                 <button
                                     onClick={() => setIsWalletDropdownOpen(!isWalletDropdownOpen)}
-                                    className="w-48 bg-zinc-900 border border-white/10 px-4 py-2 rounded-xl flex items-center justify-between gap-2 hover:bg-zinc-800 transition-colors cursor-pointer"
+                                    className="w-32 sm:w-48 bg-zinc-900 border border-white/10 px-3 sm:px-4 py-2 rounded-xl flex items-center justify-between gap-1 sm:gap-2 hover:bg-zinc-800 transition-colors cursor-pointer"
                                 >
                                     <span className="text-xs font-mono text-zinc-400 font-medium whitespace-nowrap">
                                         {formatAddress(publicKey || "")}
@@ -490,7 +518,7 @@ export default function HomeClientePage() {
                                 </button>
 
                                 {isWalletDropdownOpen && (
-                                    <div className="absolute right-0 mt-2 w-48 bg-zinc-900 border border-white/10 rounded-xl shadow-2xl overflow-hidden z-50 animate-in fade-in zoom-in-95 duration-200">
+                                    <div className="absolute right-0 mt-2 w-48 bg-zinc-900 border border-white/10 rounded-xl shadow-2xl overflow-hidden z-[120] animate-in fade-in zoom-in-95 duration-200">
                                         <button
                                             onClick={handleCopyAddress}
                                             className="w-full px-4 py-3 text-left text-sm hover:bg-white/5 transition-colors flex items-center gap-2 cursor-pointer text-zinc-300"
@@ -514,7 +542,7 @@ export default function HomeClientePage() {
                 </div>
             </header>
 
-            <main className="px-4 space-y-8 relative z-10 pt-24 text-center sm:text-left pb-32">
+            <main className="max-w-screen-md mx-auto px-4 space-y-8 relative z-10 pt-24 text-center sm:text-left pb-32">
                 {/* Title & Actions */}
                 <div className="flex justify-between items-center">
                     <div className="flex flex-col">
@@ -638,6 +666,12 @@ export default function HomeClientePage() {
 
                 {/* Contracts List / Connection Block */}
                 <div className="space-y-4">
+                    {connected && isSyncingBlockchain && (
+                        <div className="flex items-center gap-2 mb-4 px-4 py-2 bg-blue-500/10 border border-blue-500/20 rounded-lg animate-pulse w-fit mx-auto sm:mx-0">
+                            <span className="material-icons-round text-blue-400 text-sm">sync</span>
+                            <span className="text-blue-400 text-[10px] font-bold uppercase tracking-wider">Sincronizando Blockchain...</span>
+                        </div>
+                    )}
                     {connected ? (
                         filteredByStatus.length > 0 ? (
                             filteredByStatus.map((contract: any) => (

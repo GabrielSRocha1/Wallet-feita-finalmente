@@ -23,21 +23,48 @@ export function NetworkProvider({ children }: { children: ReactNode }) {
 
     useEffect(() => {
         const savedNetwork = localStorage.getItem('verum_network') as Network;
+        const savedSession = localStorage.getItem('verum_wallet_session');
 
-        // COMMON ERROR PREVENTION: Environment Mismatch
-        const isProdDomain = typeof window !== 'undefined' && window.location.hostname === 'verum.com'; // Adjust domain as needed
-
-        if (isProdDomain && savedNetwork === 'devnet') {
-            console.warn("⚠️ [SECURITY] Production domain detected via devnet. Forcing Mainnet or requiring explicit override.");
-            // Optional: setNetworkState('mainnet'); 
+        let isAdmin = false;
+        if (savedSession) {
+            try {
+                const session = JSON.parse(savedSession);
+                isAdmin = !!session.isAdmin;
+            } catch (e) {
+                console.error("Erro ao ler sessão para rede:", e);
+            }
         }
 
+        // Se não for admin, força Mainnet independentemente do que estiver no localStorage
+        if (!isAdmin) {
+            setNetworkState('mainnet');
+            localStorage.setItem('verum_network', 'mainnet');
+            return;
+        }
+
+        // Se for admin, respeita o cache ou usa o padrão
         if (savedNetwork && (savedNetwork === 'mainnet' || savedNetwork === 'devnet')) {
             setNetworkState(savedNetwork);
+        } else {
+            setNetworkState(DEFAULT_NETWORK);
         }
     }, []);
 
     const setNetwork = (newNetwork: Network) => {
+        // SEGURANÇA: Verifica se é admin antes de permitir a troca
+        const savedSession = localStorage.getItem('verum_wallet_session');
+        let isAdmin = false;
+        if (savedSession) {
+            try {
+                isAdmin = !!JSON.parse(savedSession).isAdmin;
+            } catch (e) { }
+        }
+
+        if (!isAdmin) {
+            console.error("⚠️ [SECURITY] Acesso negado: Somente administradores podem alterar a rede.");
+            return;
+        }
+
         // 1. ISOLAMENTO DE REDE: Confirmação visual/log
         console.log(`%c[Network Switch] Switching globally to ${newNetwork.toUpperCase()}`, 'color: #EAB308; font-weight: bold; background: #111; padding: 2px 5px; border-radius: 4px;');
         console.log(`[Isolamento] All subsequent RPC calls and Program IDs are now pointing to ${newNetwork}.`);

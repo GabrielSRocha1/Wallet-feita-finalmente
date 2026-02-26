@@ -7,8 +7,18 @@
  * @param dateStr The date string to parse
  * @returns Date object or null if invalid
  */
-export const parseVestingDate = (dateStr: string | null | undefined): Date | null => {
-    if (!dateStr || typeof dateStr !== 'string' || dateStr.includes('dd/mm/yyyy')) return null;
+export const parseVestingDate = (dateStr: any): Date | null => {
+    if (!dateStr || dateStr.includes?.('dd/mm/yyyy')) return null;
+
+    // Handle number (timestamp)
+    if (typeof dateStr === 'number') {
+        // Solana timestamps are in seconds. JS needs milliseconds.
+        // If it's too small (e.g. year 1970/1971), it's probably seconds.
+        const ms = dateStr < 10000000000 ? dateStr * 1000 : dateStr;
+        return new Date(ms);
+    }
+
+    if (typeof dateStr !== 'string') return null;
 
     try {
         // Normalizes variations (some might use "/" or "-" or have/not have comma)

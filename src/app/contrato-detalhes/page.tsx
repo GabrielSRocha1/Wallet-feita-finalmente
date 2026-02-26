@@ -77,6 +77,26 @@ export default function VestingContractDetailsPage() {
     const [isSendingEmail, setIsSendingEmail] = useState(false);
     const [isCanceling, setIsCanceling] = useState(false);
     const [isUpdatingRecipient, setIsUpdatingRecipient] = useState(false);
+    const dropdownRef = React.useRef<HTMLDivElement>(null);
+
+    // Fechar dropdown ao clicar fora
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+                setIsWalletDropdownOpen(false);
+            }
+        };
+
+        if (isWalletDropdownOpen) {
+            document.addEventListener("mousedown", handleClickOutside);
+        } else {
+            document.removeEventListener("mousedown", handleClickOutside);
+        }
+
+        return () => {
+            document.removeEventListener("mousedown", handleClickOutside);
+        };
+    }, [isWalletDropdownOpen]);
 
     // --- Dynamic Engine for Details ---
     const getDynamicVesting = () => {
@@ -790,25 +810,25 @@ export default function VestingContractDetailsPage() {
                                 <path d="M20 10 L50 90 L80 10 L65 10 L50 55 L35 10 Z"></path>
                             </svg>
                         </div>
-                        <div className="flex items-center text-sm font-medium gap-1">
-                            <span onClick={handleBackNavigation} className="text-zinc-400 cursor-pointer hover:text-zinc-300 transition-colors">Token bloqueado</span>
+                        <div className="flex items-center text-[10px] sm:text-sm font-medium gap-1">
+                            <span onClick={handleBackNavigation} className="text-zinc-400 cursor-pointer hover:text-zinc-300 transition-colors">Token...</span>
                             <span className="material-symbols-outlined text-xs text-zinc-500">chevron_right</span>
-                            <span>Contrato Vesting</span>
+                            <span className="whitespace-nowrap">Vesting</span>
                         </div>
                     </div>
 
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-2 sm:gap-3">
                         <NetworkSelector />
-                        <div className="relative">
+                        <div className="relative" ref={dropdownRef}>
                             <button
                                 onClick={() => setIsWalletDropdownOpen(!isWalletDropdownOpen)}
-                                className="w-48 bg-zinc-900 border border-white/10 px-4 py-2 rounded-xl flex items-center justify-between gap-2 hover:bg-zinc-800 transition-colors cursor-pointer"
+                                className="w-32 sm:w-48 bg-zinc-900 border border-white/10 px-3 sm:px-4 py-2 rounded-xl flex items-center justify-between gap-1 sm:gap-2 hover:bg-zinc-800 transition-colors cursor-pointer"
                             >
                                 <span className="text-xs font-mono text-zinc-400 font-medium whitespace-nowrap">{formatAddress(walletAddress)}</span>
                                 <span className="material-icons-round text-sm text-zinc-500">expand_more</span>
                             </button>
                             {isWalletDropdownOpen && (
-                                <div className="absolute right-0 mt-2 w-48 bg-zinc-900 border border-white/10 rounded-xl shadow-2xl overflow-hidden z-50 animate-in fade-in zoom-in-95 duration-200">
+                                <div className="absolute right-0 mt-2 w-48 bg-zinc-900 border border-white/10 rounded-xl shadow-2xl overflow-hidden z-[120] animate-in fade-in zoom-in-95 duration-200">
                                     <button
                                         onClick={() => copyToClipboard(walletAddress || "", 'Endereço da carteira')}
                                         className="w-full flex items-center gap-2 px-4 py-3 text-sm text-zinc-300 hover:bg-white/5 transition-colors cursor-pointer border-b border-white/5"
@@ -841,7 +861,7 @@ export default function VestingContractDetailsPage() {
                 </div>
             </header>
 
-            <main className="px-4 mt-6 mb-[60px]">
+            <main className="max-w-screen-md mx-auto px-4 mt-6 mb-[60px]">
                 {/* Progress Section */}
                 <section className="flex items-center gap-6 py-4 border-b border-zinc-800 mb-8">
                     <div className="relative w-16 h-16">
@@ -934,7 +954,7 @@ export default function VestingContractDetailsPage() {
                         </div>
                     </div>
 
-                    <div className="grid grid-cols-3 gap-2 pt-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-2 pt-4">
                         <div className="space-y-1">
                             <div className="text-zinc-500 text-[9px] font-bold uppercase tracking-widest">Bloqueado</div>
                             <div className="flex items-center gap-1 text-sm font-bold">
@@ -958,7 +978,7 @@ export default function VestingContractDetailsPage() {
                         </div>
                     </div>
 
-                    <div className="grid grid-cols-3 gap-2 py-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-2 py-4">
                         <div className="space-y-1">
                             <div className="text-zinc-500 text-[9px] font-bold leading-tight uppercase">Endereço Token</div>
                             <div className="flex items-center gap-1 text-xs">
@@ -968,7 +988,7 @@ export default function VestingContractDetailsPage() {
                                 >
                                     content_copy
                                 </span>
-                                <span className="text-zinc-400 truncate max-w-[120px]">{contractData.mintAddress}</span>
+                                <span className="text-zinc-400 truncate max-w-[150px] sm:max-w-[120px]">{contractData.mintAddress}</span>
                             </div>
                         </div>
                         <div className="space-y-1">
@@ -980,7 +1000,7 @@ export default function VestingContractDetailsPage() {
                                 >
                                     content_copy
                                 </span>
-                                <span className="text-zinc-400 truncate max-w-[80px]">{formatAddress(contractData.recipientAddress)}</span>
+                                <span className="text-zinc-400 truncate max-w-[120px] sm:max-w-[80px]">{formatAddress(contractData.recipientAddress)}</span>
                             </div>
                         </div>
                         <div className="space-y-1">
@@ -992,7 +1012,7 @@ export default function VestingContractDetailsPage() {
                                 >
                                     content_copy
                                 </span>
-                                <span className="text-zinc-400 truncate max-w-[80px]">{formatAddress(contractData.senderAddress)}</span>
+                                <span className="text-zinc-400 truncate max-w-[120px] sm:max-w-[80px]">{formatAddress(contractData.senderAddress)}</span>
                             </div>
                         </div>
                     </div>
