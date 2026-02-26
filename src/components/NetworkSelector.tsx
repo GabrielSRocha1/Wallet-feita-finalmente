@@ -2,16 +2,11 @@
 
 import React, { useState, useRef, useEffect } from "react";
 import { useNetwork } from "@/contexts/NetworkContext";
-import { useWallet } from "@/contexts/WalletContext";
 
 export default function NetworkSelector() {
     const { network, setNetwork } = useNetwork();
-    const { isAdmin } = useWallet();
     const [isOpen, setIsOpen] = useState(false);
     const dropdownRef = useRef<HTMLDivElement>(null);
-
-    // Se não for admin, não renderiza o seletor (ou renderiza apenas como label desabilitado)
-    if (!isAdmin) return null;
 
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {

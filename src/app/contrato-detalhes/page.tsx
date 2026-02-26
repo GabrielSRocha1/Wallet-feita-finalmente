@@ -16,7 +16,6 @@ import { getAssociatedTokenAddress, TOKEN_PROGRAM_ID, createAssociatedTokenAccou
 import { Program, AnchorProvider, Idl } from '@project-serum/anchor';
 import { detectTokenProgram } from "@/utils/tokenProgram";
 import { PROGRAM_IDS } from "@/utils/solana-config";
-import { fetchContractById } from "@/utils/blockchain-scanner";
 
 const TOKEN_2022_PROGRAM_ID = new PublicKey("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb");
 
@@ -78,26 +77,6 @@ export default function VestingContractDetailsPage() {
     const [isSendingEmail, setIsSendingEmail] = useState(false);
     const [isCanceling, setIsCanceling] = useState(false);
     const [isUpdatingRecipient, setIsUpdatingRecipient] = useState(false);
-    const dropdownRef = React.useRef<HTMLDivElement>(null);
-
-    // Fechar dropdown ao clicar fora
-    useEffect(() => {
-        const handleClickOutside = (event: MouseEvent) => {
-            if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-                setIsWalletDropdownOpen(false);
-            }
-        };
-
-        if (isWalletDropdownOpen) {
-            document.addEventListener("mousedown", handleClickOutside);
-        } else {
-            document.removeEventListener("mousedown", handleClickOutside);
-        }
-
-        return () => {
-            document.removeEventListener("mousedown", handleClickOutside);
-        };
-    }, [isWalletDropdownOpen]);
 
     // --- Dynamic Engine for Details ---
     const getDynamicVesting = () => {
@@ -124,30 +103,11 @@ export default function VestingContractDetailsPage() {
         }
     };
 
-    const refreshContractData = async (contractId: string) => {
-        try {
-            const freshData = await fetchContractById(contractId, currentNetwork as any);
-            if (freshData) {
-                console.log("[Details] Blockchain Sync Success:", freshData.status);
-                setContractData((prev: any) => ({
-                    ...prev,
-                    ...freshData,
-                    // Mantém campos UI se existirem no prev
-                    tokenSymbol: freshData.selectedToken?.symbol || prev?.tokenSymbol,
-                    tokenName: freshData.selectedToken?.name || prev?.tokenName,
-                    tokenIcon: freshData.selectedToken?.icon || prev?.tokenIcon,
-                }));
-                // Update Storage
-                localStorage.setItem("selected_contract", JSON.stringify({ ...contractData, ...freshData }));
-            }
-        } catch (e) {
-            console.error("[Details] Sync Error:", e);
-        }
-    };
-
     useEffect(() => {
         const interval = setInterval(() => {
             if (!contractData) return;
+
+            // Engine de Automação em Tempo Real
             const stats = getDynamicVesting();
             let hasChanges = false;
             let updates: any = {};
@@ -160,21 +120,32 @@ export default function VestingContractDetailsPage() {
                 }
             }
 
+            // 1. Check for Auto-Completion
             if (stats.progress >= 100 && contractData.status !== "completo" && contractData.status !== "cancelado") {
                 updates.status = "completo";
                 hasChanges = true;
             }
 
+            // 2. Check for Auto-Claim
             if (contractData.autoClaim && contractData.claimedAmount !== stats.unlocked && contractData.status !== "cancelado") {
                 updates.claimedAmount = stats.unlocked;
                 hasChanges = true;
             }
 
-            if (hasChanges) updateContract(updates);
-            else setContractData((prev: any) => prev ? { ...prev } : null);
-        }, 5000);
+            if (hasChanges) {
+                updateContract(updates);
+            } else {
+                // Just force a re-render for UI sync
+                setContractData((prev: any) => prev ? { ...prev } : null);
+            }
+        }, 5000); // Check and refresh every 5s for precision
 
+        // 1. Try to load specific selected contract
         const selectedStr = localStorage.getItem("selected_contract");
+        const savedConfig = localStorage.getItem("contract_draft");
+        const savedRecipients = localStorage.getItem("recipients_draft");
+
+        // 2. Load Wallet Address
         const connectedAddress = getWalletCookie();
         if (connectedAddress) {
             setWalletAddress(connectedAddress);
@@ -186,26 +157,65 @@ export default function VestingContractDetailsPage() {
                 const contract = JSON.parse(selectedStr);
                 const contractNetwork = contract.network || 'devnet';
 
-                if (contractNetwork !== currentNetwork) {
+                if (contract && contractNetwork !== currentNetwork) {
+                    console.warn(`[Network] Contract network (${contractNetwork}) != Current network (${currentNetwork}). Redirecting...`);
                     router.replace('/home-cliente');
                     return;
                 }
 
-                setContractData({
-                    ...contract,
-                    tokenName: contract.selectedToken?.name || "Token",
-                    tokenSymbol: contract.selectedToken?.symbol || "TKN",
-                    status: contract.status || "Bloqueado",
-                });
-
-                // Tenta Sincronizar com Blockchain On-Load
-                if (contract.id && contract.id.length > 32) {
-                    refreshContractData(contract.id);
+                if (contract) {
+                    setContractData({
+                        ...contract,
+                        tokenName: contract.selectedToken?.name || "Token",
+                        tokenSymbol: contract.selectedToken?.symbol || "TKN",
+                        tokenIcon: contract.selectedToken?.icon,
+                        status: contract.status || "Bloqueado",
+                        unlockedAmount: contract.unlockedAmount || 0,
+                        claimedAmount: contract.claimedAmount || 0,
+                        mintAddress: contract.selectedToken?.mint || contract.mintAddress || "DmSnH6gmikCc4s4oWuRGXZXr8wVfrbykWfby",
+                        senderAddress: contract.senderAddress || connectedAddress || "CtauGKgV4jmVyFQ1SWcGjy3s5jppZt",
+                        recipientAddress: contract.recipients?.[0]?.walletAddress || "Indefinido",
+                        vestingStartDate: contract.vestingStartDate
+                    });
                 }
-            } catch (e) { console.error(e); }
+            } catch (e) {
+                console.error("Error parsing selected contract:", e);
+            }
+        } else if (savedConfig && savedRecipients) {
+            try {
+                const config = JSON.parse(savedConfig);
+                const configNetwork = config.network || 'devnet'; // Check draft network if applicable
+
+                if (configNetwork !== currentNetwork) {
+                    router.replace('/home-cliente');
+                    return;
+                }
+                const recipients = JSON.parse(savedRecipients);
+
+                if (config && recipients && Array.isArray(recipients)) {
+                    const totalAmount = recipients.reduce((sum: number, r: any) => sum + (parseFloat(r.amount) || 0), 0);
+
+                    setContractData({
+                        ...config,
+                        recipients,
+                        totalAmount,
+                        tokenName: config.selectedToken?.name || "Token",
+                        tokenSymbol: config.selectedToken?.symbol || "TKN",
+                        tokenIcon: config.selectedToken?.icon,
+                        status: "Bloqueado",
+                        unlockedAmount: 0,
+                        claimedAmount: 0,
+                        mintAddress: config.selectedToken?.mintAddress || "DmSnH6gmikCc4s4oWuRGXZXr8wVfrbykWfby",
+                        senderAddress: connectedAddress || "CtauGKgV4jmVyFQ1SWcGjy3s5jppZt",
+                        recipientAddress: recipients[0]?.walletAddress || "Indefinido",
+                        vestingStartDate: config.vestingStartDate
+                    });
+                }
+            } catch (e) {
+                console.error("Error parsing draft data:", e);
+            }
         }
         setLoading(false);
-        return () => clearInterval(interval);
     }, [currentNetwork, router]);
 
     // Helper functions for display
@@ -241,11 +251,6 @@ export default function VestingContractDetailsPage() {
     };
 
     const calculateEndDate = () => {
-        // Se já temos a data de término formatada (vindo do scanner da blockchain), use-a.
-        if (contractData?.onChain && contractData?.vestingEndDate) {
-            return contractData.vestingEndDate;
-        }
-
         const startDate = parseVestingDate(contractData.vestingStartDate);
         if (!startDate || !contractData?.vestingDuration) {
             return "Indefinida";
@@ -407,10 +412,7 @@ export default function VestingContractDetailsPage() {
 
             await connection.confirmTransaction(signature, 'confirmed');
 
-            // Atualiza localmente e sincroniza com a blockchain
             updateContract({ status: "cancelado" });
-            if (contractData.id) refreshContractData(contractData.id);
-
             setIsCancelModalOpen(false);
             setToastMessage("Contrato cancelado com sucesso e tokens devolvidos!");
             setShowToast(true);
@@ -518,8 +520,6 @@ export default function VestingContractDetailsPage() {
                 recipientAddress: newAddress,
                 status: "alterado"
             });
-
-            if (contractData.id) refreshContractData(contractData.id);
 
             setIsChangeRecipientModalOpen(false);
             setToastMessage("Destinatário e status atualizados com sucesso!");
@@ -726,11 +726,10 @@ export default function VestingContractDetailsPage() {
 
             await connection.confirmTransaction(signature, 'confirmed');
 
-            // Atualiza o estado local e sincroniza com a blockchain para pegar o novo release_amount
+            // Atualiza o estado local do UI apenas após sucesso on-chain
             updateContract({
                 claimedAmount: stats.unlocked
             });
-            if (contractData.id) refreshContractData(contractData.id);
 
             setToastMessage(`${availableToClaim.toFixed(4)} ${contractData.tokenSymbol} reivindicados com sucesso na Solana!`);
             setShowToast(true);
@@ -791,25 +790,25 @@ export default function VestingContractDetailsPage() {
                                 <path d="M20 10 L50 90 L80 10 L65 10 L50 55 L35 10 Z"></path>
                             </svg>
                         </div>
-                        <div className="flex items-center text-[10px] sm:text-sm font-medium gap-1">
-                            <span onClick={handleBackNavigation} className="text-zinc-400 cursor-pointer hover:text-zinc-300 transition-colors">Token...</span>
+                        <div className="flex items-center text-sm font-medium gap-1">
+                            <span onClick={handleBackNavigation} className="text-zinc-400 cursor-pointer hover:text-zinc-300 transition-colors">Token bloqueado</span>
                             <span className="material-symbols-outlined text-xs text-zinc-500">chevron_right</span>
-                            <span className="whitespace-nowrap">Vesting</span>
+                            <span>Contrato Vesting</span>
                         </div>
                     </div>
 
-                    <div className="flex items-center gap-2 sm:gap-3">
+                    <div className="flex items-center gap-3">
                         <NetworkSelector />
-                        <div className="relative" ref={dropdownRef}>
+                        <div className="relative">
                             <button
                                 onClick={() => setIsWalletDropdownOpen(!isWalletDropdownOpen)}
-                                className="w-32 sm:w-48 bg-zinc-900 border border-white/10 px-3 sm:px-4 py-2 rounded-xl flex items-center justify-between gap-1 sm:gap-2 hover:bg-zinc-800 transition-colors cursor-pointer"
+                                className="w-48 bg-zinc-900 border border-white/10 px-4 py-2 rounded-xl flex items-center justify-between gap-2 hover:bg-zinc-800 transition-colors cursor-pointer"
                             >
                                 <span className="text-xs font-mono text-zinc-400 font-medium whitespace-nowrap">{formatAddress(walletAddress)}</span>
                                 <span className="material-icons-round text-sm text-zinc-500">expand_more</span>
                             </button>
                             {isWalletDropdownOpen && (
-                                <div className="absolute right-0 mt-2 w-48 bg-zinc-900 border border-white/10 rounded-xl shadow-2xl overflow-hidden z-[120] animate-in fade-in zoom-in-95 duration-200">
+                                <div className="absolute right-0 mt-2 w-48 bg-zinc-900 border border-white/10 rounded-xl shadow-2xl overflow-hidden z-50 animate-in fade-in zoom-in-95 duration-200">
                                     <button
                                         onClick={() => copyToClipboard(walletAddress || "", 'Endereço da carteira')}
                                         className="w-full flex items-center gap-2 px-4 py-3 text-sm text-zinc-300 hover:bg-white/5 transition-colors cursor-pointer border-b border-white/5"
@@ -842,7 +841,7 @@ export default function VestingContractDetailsPage() {
                 </div>
             </header>
 
-            <main className="max-w-screen-md mx-auto px-4 mt-6 mb-[60px]">
+            <main className="px-4 mt-6 mb-[60px]">
                 {/* Progress Section */}
                 <section className="flex items-center gap-6 py-4 border-b border-zinc-800 mb-8">
                     <div className="relative w-16 h-16">
@@ -935,7 +934,7 @@ export default function VestingContractDetailsPage() {
                         </div>
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-2 pt-4">
+                    <div className="grid grid-cols-3 gap-2 pt-4">
                         <div className="space-y-1">
                             <div className="text-zinc-500 text-[9px] font-bold uppercase tracking-widest">Bloqueado</div>
                             <div className="flex items-center gap-1 text-sm font-bold">
@@ -959,7 +958,7 @@ export default function VestingContractDetailsPage() {
                         </div>
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-2 py-4">
+                    <div className="grid grid-cols-3 gap-2 py-4">
                         <div className="space-y-1">
                             <div className="text-zinc-500 text-[9px] font-bold leading-tight uppercase">Endereço Token</div>
                             <div className="flex items-center gap-1 text-xs">
@@ -969,7 +968,7 @@ export default function VestingContractDetailsPage() {
                                 >
                                     content_copy
                                 </span>
-                                <span className="text-zinc-400 truncate max-w-[150px] sm:max-w-[120px]">{contractData.mintAddress}</span>
+                                <span className="text-zinc-400 truncate max-w-[120px]">{contractData.mintAddress}</span>
                             </div>
                         </div>
                         <div className="space-y-1">
@@ -981,7 +980,7 @@ export default function VestingContractDetailsPage() {
                                 >
                                     content_copy
                                 </span>
-                                <span className="text-zinc-400 truncate max-w-[120px] sm:max-w-[80px]">{formatAddress(contractData.recipientAddress)}</span>
+                                <span className="text-zinc-400 truncate max-w-[80px]">{formatAddress(contractData.recipientAddress)}</span>
                             </div>
                         </div>
                         <div className="space-y-1">
@@ -993,7 +992,7 @@ export default function VestingContractDetailsPage() {
                                 >
                                     content_copy
                                 </span>
-                                <span className="text-zinc-400 truncate max-w-[120px] sm:max-w-[80px]">{formatAddress(contractData.senderAddress)}</span>
+                                <span className="text-zinc-400 truncate max-w-[80px]">{formatAddress(contractData.senderAddress)}</span>
                             </div>
                         </div>
                     </div>
@@ -1003,10 +1002,10 @@ export default function VestingContractDetailsPage() {
                     <div className="relative h-48 mt-8 pl-8 pb-10">
                         {/* Y-Axis Labels */}
                         <div className="absolute left-0 top-0 h-48 flex flex-col justify-between text-[8px] text-zinc-600 font-bold pr-2 border-r border-zinc-800">
-                            <span>{Number(contractData.totalAmount || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
-                            <span>{Number(Math.round((contractData.totalAmount || 0) * 0.75)).toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
-                            <span>{Number(Math.round((contractData.totalAmount || 0) * 0.50)).toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
-                            <span>{Number(Math.round((contractData.totalAmount || 0) * 0.25)).toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+                            <span>{contractData.totalAmount}</span>
+                            <span>{Math.round(contractData.totalAmount * 0.75)}</span>
+                            <span>{Math.round(contractData.totalAmount * 0.50)}</span>
+                            <span>{Math.round(contractData.totalAmount * 0.25)}</span>
                             <span>0</span>
                         </div>
 

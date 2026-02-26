@@ -185,9 +185,8 @@ export default function ReviewPage() {
                     PROGRAM_ID
                 );
 
-                // Converter valores (Suporta 2.000.000,00 -> 2000000.00)
-                const cleanAmount = recipient.amount.toString().replace(/\./g, '').replace(',', '.');
-                const totalAmountOnChain = new BN(Math.round(parseFloat(cleanAmount) * Math.pow(10, realDecimals)));
+                // Converter valores (Usando decimais reais da rede)
+                const totalAmountOnChain = new BN(Math.floor(parseFloat(recipient.amount.replace(',', '.')) * Math.pow(10, realDecimals)));
 
                 // Determinar Tipo de Vesting
                 let vestingType = { linear: {} };
@@ -226,8 +225,7 @@ export default function ReviewPage() {
             const senderAccountInfo = await connection.getTokenAccountBalance(senderTokenAccount);
             const senderBalance = new BN(senderAccountInfo.value.amount);
             const totalRequired = recipients.reduce((acc: BN, r: any) => {
-                const cleanAmount = r.amount.toString().replace(/\./g, '').replace(',', '.');
-                const amt = new BN(Math.round(parseFloat(cleanAmount) * Math.pow(10, realDecimals)));
+                const amt = new BN(Math.floor(parseFloat(r.amount.replace(',', '.')) * Math.pow(10, realDecimals)));
                 return acc.add(amt);
             }, new BN(0));
             console.log('[revisar] Saldo ATA creator:', senderBalance.toString(), '| Total necessário:', totalRequired.toString());
@@ -314,11 +312,11 @@ export default function ReviewPage() {
     };
 
     const totalAmount = recipients.reduce((sum, r) => {
-        const amtStr = typeof r.amount === 'string' ? r.amount.replace(/\./g, '').replace(',', '.') : r.amount;
-        return sum + (parseFloat(amtStr) || 0);
+        const amt = typeof r.amount === 'string' ? r.amount.replace(',', '.') : r.amount;
+        return sum + (parseFloat(amt) || 0);
     }, 0);
     // Format to avoid floating point issues and show up to 6 decimals
-    const formattedTotal = totalAmount.toLocaleString(undefined, { maximumFractionDigits: 6 });
+    const formattedTotal = Number(totalAmount.toFixed(6)).toString();
     const [currentTime, setCurrentTime] = useState("");
 
     React.useEffect(() => {
@@ -561,7 +559,7 @@ export default function ReviewPage() {
                                         </div>
                                         <div className="flex flex-col">
                                             <span className="font-bold text-lg leading-none">
-                                                {Number(recipient.amount.toString().replace(/\./g, '').replace(',', '.')).toLocaleString(undefined, { maximumFractionDigits: 6 })} {config?.selectedToken?.symbol}
+                                                {recipient.amount} {config?.selectedToken?.symbol}
                                             </span>
                                             <span className="text-zinc-500 text-xs font-medium mt-1 uppercase">
                                                 {formatAddress(recipient.walletAddress)}
