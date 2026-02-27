@@ -9,6 +9,7 @@ export interface ContractData {
     id: string;
     senderAddress: string;
     recipientAddress?: string;
+    mintAddress?: string;
     recipients: Array<{
         walletAddress: string;
         amount: string;
@@ -93,6 +94,8 @@ export const parseVestingAccount = (pubkey: PublicKey, buffer: Buffer, network: 
     return {
         id: pubkey.toBase58(),
         senderAddress: creator,
+        recipientAddress: beneficiary,
+        mintAddress: mint,
         recipients: [{
             walletAddress: beneficiary,
             amount: totalAmount.toString(),
@@ -121,7 +124,7 @@ export const parseVestingAccount = (pubkey: PublicKey, buffer: Buffer, network: 
 /**
  * Busca metadados básicos (decimais e símbolo) para uma lista de mints
  */
-async function resolveTokenMetadata(connection: Connection, mints: string[]): Promise<Map<string, { decimals: number, symbol: string, name?: string, icon?: string }>> {
+async function resolveTokenMetadata(connection: Connection, mints: string[], network: 'mainnet' | 'devnet'): Promise<Map<string, { decimals: number, symbol: string, name?: string, icon?: string }>> {
     const metadataMap = new Map<string, { decimals: number, symbol: string, name?: string, icon?: string }>();
     if (mints.length === 0) return metadataMap;
 
@@ -131,8 +134,9 @@ async function resolveTokenMetadata(connection: Connection, mints: string[]): Pr
     // 1. Tentar via Helius (Metadata Completa: Símbolo, Nome, Decimais, Ícone)
     if (heliusKey && heliusKey !== '') {
         try {
-            console.log(`[Scanner] Resolvendo metadados de ${uniqueMints.length} tokens via Helius...`);
-            const response = await fetch(`https://mainnet.helius-rpc.com/?api-key=${heliusKey}`, {
+            console.log(`[Scanner] Resolvendo metadados de ${uniqueMints.length} tokens via Helius (${network})...`);
+            const heliusBaseUrl = network === 'mainnet' ? 'mainnet.helius-rpc.com' : 'devnet.helius-rpc.com';
+            const response = await fetch(`https://${heliusBaseUrl}/?api-key=${heliusKey}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -223,7 +227,7 @@ export const scanBlockchainContracts = async (walletAddress: string, network: 'm
 
         // 2. Resolver metadados dos tokens
         const mintsToResolve = rawContracts.map(c => c.selectedToken?.mint || "").filter(m => m !== "");
-        const tokenMetadata = await resolveTokenMetadata(connection, mintsToResolve);
+        const tokenMetadata = await resolveTokenMetadata(connection, mintsToResolve, network);
 
         // 3. Aplicar decimais e corrigir valores (O QUE RESOLVE O BUG DE BILHÕES)
         const finalContracts = rawContracts.map(contract => {
@@ -276,7 +280,7 @@ export const fetchContractById = async (contractId: string, network: 'mainnet' |
 
         // Resolve metadata for the single token
         const mint = rawContract.selectedToken?.mint || "";
-        const metadataMap = await resolveTokenMetadata(connection, [mint]);
+        const metadataMap = await resolveTokenMetadata(connection, [mint], network);
         const metadata = metadataMap.get(mint);
 
         if (metadata) {

@@ -61,7 +61,7 @@ export default function ConfirmationPage() {
                     const existingStr = localStorage.getItem("created_contracts");
                     const existing = existingStr ? JSON.parse(existingStr) : [];
 
-                    const newContracts = [];
+                    const newContracts: any[] = [];
 
                     // Create separate entries for each recipient
                     for (let i = 0; i < recipients.length; i++) {
@@ -108,46 +108,49 @@ export default function ConfirmationPage() {
                     // Save all new contracts locally (fallback/cache)
                     localStorage.setItem("created_contracts", JSON.stringify([...newContracts, ...existing]));
 
-                    // Save all new contracts to the Backend
-                    fetch('/api/contracts', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ newContracts })
-                    }).catch(e => console.error("Error saving to backend:", e));
-
                     // Set the first one as selected contract for immediate viewing
                     if (newContracts.length > 0) {
                         localStorage.setItem("selected_contract", JSON.stringify(newContracts[0]));
                     }
 
-                    // SEND EMAILS
-                    newContracts.forEach((contractEntry: any) => {
-                        const recipient = contractEntry.recipients[0];
-                        if (recipient && recipient.email) {
-                            const contractDataForEmail = {
-                                tokenName: contractEntry.tokenName || "Token",
-                                tokenSymbol: contractEntry.tokenSymbol || "TKN",
-                                totalAmount: contractEntry.totalAmount,
-                                status: contractEntry.status,
-                                vestingStartDate: contractEntry.vestingStartDate,
-                                vestingDuration: contractEntry.vestingDuration,
-                                selectedTimeUnit: contractEntry.selectedTimeUnit,
-                                selectedSchedule: contractEntry.selectedSchedule,
-                                id: contractEntry.id
-                            };
+                    // Save all new contracts to the Backend
+                    fetch('/api/contracts', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ newContracts })
+                    })
+                        .then(() => {
+                            console.log("[Details] Backend Sync Success. Sending emails...");
+                            // SEND EMAILS ONLY AFTER BACKEND SYNC
+                            newContracts.forEach((contractEntry: any) => {
+                                const recipient = contractEntry.recipients[0];
+                                if (recipient && recipient.email) {
+                                    const contractDataForEmail = {
+                                        tokenName: contractEntry.selectedToken?.name || contractEntry.tokenName || "Token",
+                                        tokenSymbol: contractEntry.selectedToken?.symbol || contractEntry.tokenSymbol || "TKN",
+                                        totalAmount: contractEntry.totalAmount,
+                                        status: contractEntry.status,
+                                        vestingStartDate: contractEntry.vestingStartDate,
+                                        vestingDuration: contractEntry.vestingDuration,
+                                        selectedTimeUnit: contractEntry.selectedTimeUnit,
+                                        selectedSchedule: contractEntry.selectedSchedule,
+                                        id: contractEntry.id
+                                    };
 
-                            fetch('/api/send-email', {
-                                method: 'POST',
-                                headers: {
-                                    'Content-Type': 'application/json',
-                                },
-                                body: JSON.stringify({
-                                    recipientEmail: recipient.email,
-                                    contractData: contractDataForEmail
-                                }),
-                            }).catch(err => console.error("Error sending email:", err));
-                        }
-                    });
+                                    fetch('/api/send-email', {
+                                        method: 'POST',
+                                        headers: {
+                                            'Content-Type': 'application/json',
+                                        },
+                                        body: JSON.stringify({
+                                            recipientEmail: recipient.email,
+                                            contractData: contractDataForEmail
+                                        }),
+                                    }).catch(err => console.error("Error sending email:", err));
+                                }
+                            });
+                        })
+                        .catch(e => console.error("Error saving to backend:", e));
 
                     // Clear drafts
                     localStorage.removeItem("contract_draft");

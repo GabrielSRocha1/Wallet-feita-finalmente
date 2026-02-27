@@ -27,8 +27,8 @@ export async function POST(req: Request) {
 
         const isReminder = emailType === "reminder";
         const subject = isReminder
-            ? `Lembrete de Saque Disponível: ${contractData.tokenName || 'Tokens'}`
-            : `Seu Contrato Vesting foi Criado: ${contractData.tokenName || 'Tokens'}`;
+            ? `Lembrete de Saque Disponível: ${contractData.tokenName || 'Tokens'} (${contractData.tokenSymbol || 'TKN'})`
+            : `Seu Contrato Vesting foi Criado: ${contractData.tokenName || 'Tokens'} (${contractData.tokenSymbol || 'TKN'})`;
 
         // Format status for display
         const statusMap: Record<string, string> = {
@@ -38,6 +38,15 @@ export async function POST(req: Request) {
             'cancelado': 'cancelado'
         };
         const displayStatus = statusMap[contractData.status] || contractData.status || 'agendado';
+
+        // Helper to format large numbers (K, M, etc.)
+        const formatAmount = (num: number | string) => {
+            const n = typeof num === 'string' ? parseFloat(num) : num;
+            if (isNaN(n)) return '0';
+            if (n >= 1000000) return (n / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
+            if (n >= 1000) return (n / 1000).toFixed(1).replace(/\.0$/, '') + 'K';
+            return n.toLocaleString(undefined, { maximumFractionDigits: 2 });
+        };
 
         const mailOptions = {
             from: process.env.SMTP_USER ? `"Verum Vesting" <${process.env.SMTP_USER}>` : '"Verum Vesting" <smartcontract@mastter.digital>',
@@ -66,10 +75,13 @@ export async function POST(req: Request) {
                             
                             <div style="border-top: 1px solid #e5e7eb; padding-top: 24px; margin-top: 24px;">
                                 <div style="margin-bottom: 12px; font-size: 15px;">
+                                    <strong style="color: #111827;">Contrato ID:</strong> <code style="background-color: #f1f5f9; padding: 2px 4px; border-radius: 4px;">${contractData.id || 'N/A'}</code>
+                                </div>
+                                <div style="margin-bottom: 12px; font-size: 15px;">
                                     <strong style="color: #111827;">Token:</strong> ${contractData.tokenName || 'Token'} (${contractData.tokenSymbol || 'TKN'})
                                 </div>
                                 <div style="margin-bottom: 12px; font-size: 15px;">
-                                    <strong style="color: #111827;">Quantidade Total:</strong> ${contractData.totalAmount || '0'} ${contractData.tokenSymbol || ''}
+                                    <strong style="color: #111827;">Quantidade Total:</strong> ${formatAmount(contractData.totalAmount)} ${contractData.tokenSymbol || ''}
                                 </div>
                                 <div style="margin-bottom: 12px; font-size: 15px;">
                                     <strong style="color: #111827;">Status:</strong> ${displayStatus}

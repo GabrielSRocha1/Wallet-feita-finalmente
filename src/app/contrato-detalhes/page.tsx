@@ -937,6 +937,25 @@ export default function VestingContractDetailsPage() {
                         </div>
                     </div>
 
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 border-t border-white/5 pt-4">
+                        <div className="space-y-1">
+                            <div className="text-zinc-500 text-[10px] font-bold uppercase tracking-widest">Frequência</div>
+                            <div className="text-sm font-bold">{contractData.selectedSchedule || "Linear"}</div>
+                        </div>
+                        <div className="space-y-1">
+                            <div className="text-zinc-500 text-[10px] font-bold uppercase tracking-widest">Duração do contrato</div>
+                            <div className="text-sm font-bold">
+                                {contractData.onChain
+                                    ? `${Math.round((contractData.vestingDuration || 0) / 86400)} Dias`
+                                    : `${contractData.vestingDuration || "0"} ${contractData.selectedTimeUnit || ""}`}
+                            </div>
+                        </div>
+                        <div className="space-y-1">
+                            <div className="text-zinc-500 text-[10px] font-bold uppercase tracking-widest">Cronograma</div>
+                            <div className="text-sm font-bold">{contractData.selectedTimeUnit || (contractData.onChain ? "Contínua" : "N/A")}</div>
+                        </div>
+                    </div>
+
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-2 pt-4">
                         <div className="space-y-1">
                             <div className="text-zinc-500 text-[9px] font-bold uppercase tracking-widest">Bloqueado</div>
